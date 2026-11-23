@@ -1,0 +1,1 @@
+Coloque aqui as imagens geradas (veja PROMPTS_IMAGENS_BALEIA.md). O jogo funciona sem elas, usando arte desenhada em código.

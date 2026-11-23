@@ -1,0 +1,26 @@
+name: Gerar .exe para Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Criar projeto Windows (se ainda não existir)
+        run: |
+          if (!(Test-Path windows)) { flutter create --platforms=windows --project-name mostra_baleias . }
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Compactar
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath JogosDaMostra-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JogosDaMostra-Windows
+          path: JogosDaMostra-Windows.zip
