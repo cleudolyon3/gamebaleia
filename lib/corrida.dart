@@ -11,6 +11,7 @@ const double _W = 960, _H = 540;
 const List<double> _lanes = [175, 290, 405];
 const double _whaleX = 210;
 const int _meta = 8;
+const double _tempoResposta = 15;
 
 enum _Fase { pronto, jogando, derrota, vitoria }
 enum _Tipo { resp, rede, saco, krill, escudo, dobro }
@@ -73,8 +74,13 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   final List<_Ent> ents = [];
   final List<_Bolha> bolhas = [];
   final List<_Texto> textos = [];
-  double proxSpawn = 1.2, faseObst = 5;
-  bool perguntaAtiva = false;
+  double proxSpawn = 1.2, sinceQ = 0;
+  int limiarP = 120;
+  bool perguntaAtiva = false, respondida = false;
+  int escolhida = -1;
+  double tempoPerg = _tempoResposta, feedbackT = 0;
+  List<String> opcoesPerg = [];
+  int numPergunta = 0;
   Pergunta? perg;
   int certaIdx = 0;
   List<Pergunta> _fila = [];
@@ -115,7 +121,11 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     aviso = '';
     avisoT = 0;
     proxSpawn = 1.0;
-    faseObst = 4.5;
+    sinceQ = 0;
+    limiarP = 120;
+    respondida = false;
+    escolhida = -1;
+    numPergunta = 0;
     tFim = 0;
     fimMostrado = false;
     _registrado = false;
@@ -124,7 +134,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   }
 
   void _mover(int d) {
-    if (fase != _Fase.jogando) return;
+    if (fase != _Fase.jogando || perguntaAtiva) return;
     lane = (lane + d).clamp(0, 2);
   }
 
@@ -175,6 +185,17 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   }
 
   void _jogar(double dt) {
+    if (perguntaAtiva) {
+      // jogo PAUSADO: o aluno responde (15 s) ou lê o feedback
+      if (!respondida) {
+        tempoPerg -= dt;
+        if (tempoPerg <= 0) _responder(-1);
+      } else {
+        feedbackT -= dt;
+        if (feedbackT <= 0) _continuar();
+      }
+      return;
+    }
     final vel = 230.0 + acertos * 16 + (mult - 1) * 5;
     scroll += vel * dt;
     invuln = math.max(0, invuln - dt);
@@ -182,14 +203,16 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     dobroT = math.max(0, dobroT - dt);
     avisoT = math.max(0, avisoT - dt);
 
-    if (!perguntaAtiva && avisoT <= 0.8) {
-      proxSpawn -= dt;
-      faseObst -= dt;
-      if (proxSpawn <= 0) {
-        _spawnComum();
-        proxSpawn = 0.75 + _rnd.nextDouble() * 0.7;
-      }
-      if (faseObst <= 0) _iniciarPergunta();
+    sinceQ += dt;
+    proxSpawn -= dt;
+    if (proxSpawn <= 0) {
+      _spawnComum();
+      proxSpawn = 0.75 + _rnd.nextDouble() * 0.7;
+    }
+    // a pergunta vem conforme a pontuação (ou, no máximo, a cada ~28 s)
+    if ((pontos >= limiarP && sinceQ >= 6) || sinceQ >= 28) {
+      _iniciarPergunta();
+      return;
     }
 
     var comestivelPerto = false;
@@ -215,12 +238,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     final alvo = (comestivelPerto || mordida > 0) ? 1.0 : 0.0;
     boca += (alvo - boca) * math.min(1.0, dt * 14);
 
-    ents.removeWhere((e) => e.x < -300 || (e.morta && e.tipo != _Tipo.resp && e.x < -50));
-    if (perguntaAtiva && !ents.any((e) => e.tipo == _Tipo.resp && !e.morta)) {
-      // passou sem responder
-      perguntaAtiva = false;
-      _errou('Você deixou a pergunta passar. ');
-    }
+    ents.removeWhere((e) => e.x < -300 || (e.morta && e.x < -50));
   }
 
   void _spawnComum() {
@@ -246,10 +264,54 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     final erradas = <int>[for (var i = 0; i < p.opcoes.length; i++) if (i != p.certa) i]..shuffle(_rnd);
     final escolhidas = [p.certa, erradas[0], erradas[1]]..shuffle(_rnd);
     certaIdx = escolhidas.indexOf(p.certa);
-    for (var l = 0; l < 3; l++) {
-      ents.add(_Ent(_Tipo.resp, _W + 140, l, idx: l, txt: p.opcoes[escolhidas[l]]));
-    }
+    opcoesPerg = [for (final i in escolhidas) p.opcoes[i]];
+    numPergunta++;
+    tempoPerg = _tempoResposta;
+    respondida = false;
+    escolhida = -1;
+    ents.clear(); // limpa a tela: ao voltar não há obstáculo em cima da baleia
     perguntaAtiva = true;
+    boca = 0;
+  }
+
+  /// [i] = índice da opção (0..2) ou -1 quando o tempo acabou.
+  void _responder(int i) {
+    if (!perguntaAtiva || respondida || fase != _Fase.jogando) return;
+    respondida = true;
+    escolhida = i;
+    feedbackT = 7;
+    if (i == certaIdx) {
+      acertos++;
+      combo += 2;
+      final g = 100 * mult;
+      pontos += g;
+      textos.add(_Texto('+$g', _whaleX + 60, whaleY - 60, const Color(0xFFA5D6A7)));
+      _estourar(_whaleX + 100, whaleY, 14);
+    } else {
+      vidas--;
+      combo = 0;
+      tremor = 1;
+      flash = 1;
+    }
+  }
+
+  void _continuar() {
+    if (!perguntaAtiva || !respondida) return;
+    perguntaAtiva = false;
+    respondida = false;
+    ents.clear();
+    invuln = 2.0;
+    sinceQ = 0;
+    limiarP = pontos + 120;
+    proxSpawn = 1.0;
+    if (vidas <= 0) {
+      fase = _Fase.derrota;
+      tFim = 0;
+    } else if (acertos >= _meta) {
+      pontos += vidas * 150;
+      fase = _Fase.vitoria;
+      tFim = 0;
+    }
   }
 
   void _comer(_Ent e) {
@@ -272,43 +334,10 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
         textos.add(_Texto('PONTOS x2!', e.x, e.y - 30, const Color(0xFFFFD54F)));
         break;
       case _Tipo.resp:
-        for (final o in ents) {
-          if (o.tipo == _Tipo.resp) o.morta = true;
-        }
-        perguntaAtiva = false;
-        final p = perg!;
-        if (e.idx == certaIdx) {
-          acertos++;
-          combo += 2;
-          final g = 100 * mult;
-          pontos += g;
-          aviso = 'Muito bem! ${p.explicacao}';
-          avisoOk = true;
-          avisoT = 5.0;
-          faseObst = 4.0 + _rnd.nextDouble() * 2;
-          textos.add(_Texto('+$g', e.x, e.y - 40, const Color(0xFFA5D6A7)));
-          _estourar(e.x, e.y, 14);
-          if (acertos >= _meta) {
-            fase = _Fase.vitoria;
-            tFim = 0;
-            pontos += vidas * 150;
-          }
-        } else {
-          _errou('');
-        }
         break;
       default:
         break;
     }
-  }
-
-  void _errou(String prefixo) {
-    final p = perg;
-    aviso = '${prefixo}Não foi essa. ${p?.explicacao ?? ''}';
-    avisoOk = false;
-    avisoT = 5.0;
-    faseObst = 4.0 + _rnd.nextDouble() * 2;
-    _perderVida(_whaleX + 100, whaleY);
   }
 
   void _perderVida(double x, double y) {
@@ -346,6 +375,13 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
           if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyW) _mover(-1);
           if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.keyS) _mover(1);
           if ((k == LogicalKeyboardKey.space || k == LogicalKeyboardKey.enter) && (fase == _Fase.pronto || fimMostrado)) _novo();
+          if (perguntaAtiva && !respondida) {
+            if (k == LogicalKeyboardKey.digit1 || k == LogicalKeyboardKey.numpad1) _responder(0);
+            if (k == LogicalKeyboardKey.digit2 || k == LogicalKeyboardKey.numpad2) _responder(1);
+            if (k == LogicalKeyboardKey.digit3 || k == LogicalKeyboardKey.numpad3) _responder(2);
+          } else if (perguntaAtiva && respondida && (k == LogicalKeyboardKey.space || k == LogicalKeyboardKey.enter)) {
+            _continuar();
+          }
           if (k == LogicalKeyboardKey.escape) Navigator.of(context).maybePop();
         },
         child: Center(
@@ -359,6 +395,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
                 child: Stack(children: [
                   Positioned.fill(child: CustomPaint(painter: _CorridaPainter(this))),
                   if (fase == _Fase.jogando || fase == _Fase.vitoria) _hud(sc),
+                  if (fase == _Fase.jogando && perguntaAtiva && perg != null) _painelPergunta(sc),
                   if (fase == _Fase.pronto) _cartaoInicio(sc),
                   if (fimMostrado) _cartaoFim(sc),
                   Positioned(
@@ -379,7 +416,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   }
 
   void _ponteiro(double y) {
-    if (fase != _Fase.jogando) return;
+    if (fase != _Fase.jogando || perguntaAtiva) return;
     lane = y < 232 ? 0 : (y < 348 ? 1 : 2);
   }
 
@@ -402,28 +439,89 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
                 Icon(i < vidas ? Icons.favorite : Icons.favorite_border, color: const Color(0xFFFF5252), size: 30 * sc),
             ]),
             SizedBox(height: 8 * sc),
-            if (perguntaAtiva && perg != null)
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(10 * sc),
-                decoration: BoxDecoration(color: const Color(0xDD06202E), borderRadius: BorderRadius.circular(14 * sc)),
-                child: Text(perg!.enunciado,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white, fontSize: 19 * sc, fontWeight: FontWeight.w800)),
-              ),
             const Spacer(),
-            if (avisoT > 0 && aviso.isNotEmpty)
-              Container(
-                width: double.infinity,
-                margin: EdgeInsets.only(bottom: 12 * sc, right: 0),
-                padding: EdgeInsets.all(12 * sc),
-                decoration: BoxDecoration(
-                  color: avisoOk ? const Color(0xEE1B5E20) : const Color(0xEEB71C1C),
-                  borderRadius: BorderRadius.circular(14 * sc),
-                ),
-                child: Text(aviso, style: TextStyle(color: Colors.white, fontSize: 16 * sc, fontWeight: FontWeight.w700)),
-              ),
           ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _painelPergunta(double sc) {
+    final p = perg!;
+    final tempoOk = tempoPerg.clamp(0, _tempoResposta).toDouble();
+    final urgente = tempoOk <= 5;
+    return Positioned.fill(
+      child: Container(
+        color: const Color(0xAA02101C),
+        child: Center(
+          child: Container(
+            width: 800 * sc,
+            padding: EdgeInsets.all(22 * sc),
+            decoration: BoxDecoration(
+              color: const Color(0xF006202E),
+              borderRadius: BorderRadius.circular(22 * sc),
+              border: Border.all(color: const Color(0xFF39B5C9), width: 2),
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                Text('Pergunta $numPergunta  •  ${p.tema}',
+                    style: TextStyle(color: const Color(0xFF8ED8D3), fontSize: 15 * sc, fontWeight: FontWeight.w900)),
+                const Spacer(),
+                if (!respondida)
+                  Text('⏱ ${tempoOk.ceil()} s',
+                      style: TextStyle(color: urgente ? const Color(0xFFFF8A80) : Colors.white, fontSize: 22 * sc, fontWeight: FontWeight.w900)),
+              ]),
+              if (!respondida) ...[
+                SizedBox(height: 6 * sc),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: tempoOk / _tempoResposta,
+                    minHeight: 8 * sc,
+                    color: urgente ? const Color(0xFFFF5252) : const Color(0xFF39B5C9),
+                    backgroundColor: Colors.white12,
+                  ),
+                ),
+              ],
+              SizedBox(height: 14 * sc),
+              Text(p.enunciado, style: TextStyle(color: Colors.white, fontSize: 24 * sc, fontWeight: FontWeight.w800, height: 1.25)),
+              SizedBox(height: 14 * sc),
+              for (var i = 0; i < opcoesPerg.length; i++)
+                Padding(
+                  padding: EdgeInsets.only(bottom: 9 * sc),
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      alignment: Alignment.centerLeft,
+                      padding: EdgeInsets.all(14 * sc),
+                      backgroundColor: !respondida
+                          ? const Color(0xFFE8FAFF)
+                          : (i == certaIdx ? const Color(0xFFA5D6A7) : (i == escolhida ? const Color(0xFFEF9A9A) : const Color(0xFFCFD8DC))),
+                    ),
+                    onPressed: respondida ? null : () => _responder(i),
+                    child: Text('${i + 1})  ${opcoesPerg[i]}',
+                        style: TextStyle(color: const Color(0xFF06202E), fontSize: 18 * sc, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              if (respondida) ...[
+                Container(
+                  padding: EdgeInsets.all(12 * sc),
+                  decoration: BoxDecoration(
+                    color: escolhida == certaIdx ? const Color(0xEE1B5E20) : const Color(0xEEB71C1C),
+                    borderRadius: BorderRadius.circular(12 * sc),
+                  ),
+                  child: Text(
+                    '${escolhida == certaIdx ? '✅ Acertou! +pontos. ' : (escolhida < 0 ? '⏱ Tempo esgotado! Você perdeu uma vida. ' : '❌ Errou! Você perdeu uma vida. ')}${p.explicacao}',
+                    style: TextStyle(color: Colors.white, fontSize: 16 * sc, fontWeight: FontWeight.w700, height: 1.3),
+                  ),
+                ),
+                SizedBox(height: 10 * sc),
+                FilledButton(
+                  onPressed: _continuar,
+                  child: Padding(padding: EdgeInsets.all(8 * sc), child: Text('Continuar', style: TextStyle(fontSize: 20 * sc))),
+                ),
+              ],
+            ]),
+          ),
         ),
       ),
     );
@@ -454,8 +552,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
         SizedBox(height: 12 * sc),
         Text(
           'Nade pelas 3 faixas (setas ↑ ↓, W/S ou toque na tela).\n'
-          'Abra a boca para comer krill e as respostas certas.\n'
-          'Fuja das redes de pesca e dos sacos plásticos!\n'
+          'Coma krill para ganhar pontos e fuja das redes e dos sacos plásticos.\n'
+          'Conforme a pontuação sobe, o jogo PARA e vem uma pergunta:\n'
+          'você tem 15 segundos (clique ou use 1, 2, 3). Acertou ganha pontos, errou ou demorou perde uma vida.\n'
           'Acerte $_meta perguntas para salvar a baleia.',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white70, fontSize: 18 * sc, height: 1.4),
