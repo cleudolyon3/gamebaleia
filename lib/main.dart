@@ -90,7 +90,7 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
                 ),
               ),
               const SizedBox(height: 14),
-              _botao('🐋  Corrida da Baleia', 'Ação! Coma, fuja da rede e responda', () => _abrir(const CorridaTela())),
+              _botao('🐋  Corrida da Baleia', 'Ação em 3 fases! Salve a baleia e o filhote', () => _abrir(const CorridaTela())),
               _botao('🧠  Jogo da Memória', 'Encontre os pares da cultura e do mar', () => _abrir(const MemoriaTela())),
               _botao('🛟  Resgate da Baleia', 'Abra as comportas e leve-a ao mar', () => _abrir(const ResgateTela())),
               _botao('🏆  Ranking', 'Melhores pontuações neste computador', () => _abrir(const RankingTela())),
@@ -149,39 +149,67 @@ class RankingTela extends StatefulWidget {
 
 class _RankingTelaState extends State<RankingTela> {
   List<RegistroPlacar> _l = [];
+  // nomes iguais aos usados em Placar.registrar (não mudar, senão o ranking antigo some da aba)
+  static const _abas = ['Geral', '🐋 Corrida', '🧠 Memória', '🛟 Resgate'];
+  static const List<String?> _jogos = [null, 'Corrida da Baleia', 'Memória', 'Resgate da Baleia'];
+
   @override
   void initState() {
     super.initState();
     Placar.todos().then((l) => setState(() => _l = l));
   }
 
+  Future<void> _limpar() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apagar o ranking?'),
+        content: const Text('As pontuações de todos os jogos serão apagadas. Isso não pode ser desfeito.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apagar tudo')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await Placar.limpar();
+      if (mounted) setState(() => _l = []);
+    }
+  }
+
+  Widget _lista(String? jogo) {
+    final l = jogo == null ? _l : _l.where((r) => r.jogo == jogo).toList();
+    if (l.isEmpty) {
+      return const Center(child: Text('Ainda ninguém jogou. Seja o primeiro!', style: TextStyle(fontSize: 20)));
+    }
+    return ListView.builder(
+      itemCount: math.min(l.length, 30),
+      itemBuilder: (_, i) {
+        final r = l[i];
+        const medalha = ['🥇', '🥈', '🥉'];
+        return ListTile(
+          leading: Text(i < 3 ? medalha[i] : '${i + 1}º', style: const TextStyle(fontSize: 26)),
+          title: Text(r.nome, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          subtitle: Text(jogo == null ? '${r.jogo} • ${r.data}' : r.data),
+          trailing: Text('${r.pontos}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFFFFE082))),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('🏆 Ranking'), backgroundColor: const Color(0xFF06202E), actions: [
-        TextButton(
-          onPressed: () async {
-            await Placar.limpar();
-            setState(() => _l = []);
-          },
-          child: const Text('Limpar'),
-        )
-      ]),
-      body: _l.isEmpty
-          ? const Center(child: Text('Ainda ninguém jogou. Seja o primeiro!', style: TextStyle(fontSize: 20)))
-          : ListView.builder(
-              itemCount: math.min(_l.length, 30),
-              itemBuilder: (_, i) {
-                final r = _l[i];
-                const medalha = ['🥇', '🥈', '🥉'];
-                return ListTile(
-                  leading: Text(i < 3 ? medalha[i] : '${i + 1}º', style: const TextStyle(fontSize: 26)),
-                  title: Text(r.nome, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
-                  subtitle: Text('${r.jogo} • ${r.data}'),
-                  trailing: Text('${r.pontos}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFFFFE082))),
-                );
-              },
-            ),
+    return DefaultTabController(
+      length: _abas.length,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('🏆 Ranking'),
+          backgroundColor: const Color(0xFF06202E),
+          actions: [TextButton(onPressed: _limpar, child: const Text('Limpar'))],
+          bottom: TabBar(tabs: [for (final a in _abas) Tab(text: a)]),
+        ),
+        body: TabBarView(children: [for (final j in _jogos) _lista(j)]),
+      ),
     );
   }
 }

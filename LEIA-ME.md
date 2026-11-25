@@ -1,7 +1,37 @@
 # Jogos da Mostra — Costa das Baleias (Flutter)
 
-3 jogos + ranking local: **Corrida da Baleia** (ação, boca abrindo, rede, afundamento), **Jogo da Memória** e **Resgate da Baleia**.
+3 jogos + ranking local: **Corrida da Baleia** (ação em 3 fases), **Jogo da Memória** e **Resgate da Baleia**.
 Controles da corrida: ↑ ↓ (ou W/S, ou toque/mouse nas 3 faixas), Esc volta.
+
+## Novidades da versão 1.1 (Corrida da Baleia)
+- **3 fases**: 1) Águas de Abrolhos, 2) Mar Aberto, 3) Rota dos Navios. Cada fase tem 3 perguntas, fica mais escura, mais rápida e mais difícil. Ao concluir uma fase há bônus de pontos e a baleia recupera 1 vida.
+- **Navios com anzol** (fases 2 e 3, poucos): o navio passa na superfície e baixa o anzol até uma certa altura. Se a baleia bater no anzol, é **pescada** (fim de jogo). O escudo quebra o anzol. Sempre sobra uma faixa livre embaixo da ponta do anzol.
+- **Filhote**: nada atrás da mãe. A primeira batida em rede ou saco faz a baleia **perder o filhote** (sem perder vida). Depois disso, cada batida tira 1 vida. Terminar com o filhote dá **+500 pontos**, e cada fase concluída com ele dá +150 de bônus.
+- **Mais ação**: cardumes ao fundo, rastro de bolhas, o krill é puxado pela boca, a baleia dá um bote ao morder, riscos de velocidade com combo alto, céu e ondas na superfície, obstáculos duplos na fase 3.
+- **Ranking**: a tela de ranking agora tem abas (Geral, Corrida, Memória e Resgate) e o botão Limpar pede confirmação. Os placares antigos são mantidos (mesma chave e mesmo nome de jogo).
+
+## Imagens e vídeos incluídos (versão 1.2)
+- Em `assets/img/`: `filhote.png`, `anzol.png`, `barco.png`, `fundo_mar2.jpg` (fase 2) e `fundo_mar3.jpg` (fase 3), já tratados (fundo transparente, sem sombra de chão e sem texto no casco).
+- Em `videos/`: 4 vídeos para projetar na mostra (mãe e filhote, navio lançando o anzol, filhote se perdendo e chegada em Abrolhos). Não entram no jogo nem no .exe; abra no player do computador da exposição.
+- Falta só uma imagem opcional: `saco_plastico.png` (veja o prompt 6 em `PROMPTS_IMAGENS_BALEIA.md`). Sem ela o jogo desenha o saco em código.
+
+## Sons (versão 1.2)
+Sons originais em `assets/audio/` (gerados por `python tools/gerar_sons.py`, sem direitos autorais): mar de fundo, canto de baleia, golfinho, tensão do navio, comer krill, acerto, erro, batida, filhote perdido, anzol, pescada, fase concluída e vitória.
+- A baleia e o golfinho aparecem de vez em quando durante a corrida, e o golfinho também comemora cada fase concluída.
+- Quando um navio entra na tela começa uma batida grave de tensão, que para quando o anzol passa.
+- Botão de som no canto da tela ou tecla **M** para silenciar (útil na mostra).
+- Para usar gravações reais, troque o `.wav` pelo mesmo nome na pasta (por exemplo, `baleia.wav` e `golfinho.wav` de um banco de sons livre, conferindo a licença). O tema do filme "Tubarão" é música protegida e não foi usado.
+- Depois de atualizar, rode `flutter pub get` (novo pacote `audioplayers`).
+
+### Ajustes rápidos (topo de `lib/corrida.dart`)
+- `_anzolMata = true`: anzol pesca a baleia na hora. Mude para `false` para o anzol tirar só 1 vida.
+- `_metas`, `_velBase`, `_pObst`, `_espMin`, `_espVar`: acertos por fase, velocidade, chance de obstáculos e intervalo entre objetos.
+- Frequência dos navios: `proxNavio` em `_iniciarFase` e em `_navios`.
+
+### Para não perder o ranking ao atualizar
+O ranking fica na pasta do usuário do Windows (AppData), não na pasta do jogo. Então: gere o novo .exe com o **mesmo nome de projeto (`mostra_baleias`)**, rode no **mesmo computador e no mesmo usuário do Windows** e substitua só a pasta do jogo. Copiar o jogo para outro PC começa com ranking vazio.
+Nunca mude a chave `ranking_v1` nem o nome `'Corrida da Baleia'` em `placar.dart` e `corrida.dart`.
+
 
 ## Gerar o .exe do Windows
 O Flutter só compila para Windows **em um Windows**. Duas formas:
@@ -29,5 +59,5 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 ## Dicas
 - Nome da janela e ícone: edite `windows\runner\main.cpp` (título) e `windows\runner\resources\app_icon.ico`.
 - Tela cheia na mostra: F11 não vem pronto; se quiser, adiciono o pacote `window_manager`.
-- Imagens: veja `PROMPTS_IMAGENS_BALEIA.md`. Sem imagens o jogo usa arte desenhada em código.
+- Imagens: veja `PROMPTS_IMAGENS_BALEIA.md` e, para a versão 1.1 (filhote, anzol, navio, fundos das fases), `PROMPTS_LEONARDO_V2.md`. Sem imagens o jogo usa arte desenhada em código.
 - Ranking: salvo no próprio computador (shared_preferences). Dá para ligar na API do Calvário/Mgestor depois.

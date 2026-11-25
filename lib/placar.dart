@@ -44,8 +44,12 @@ class Placar {
     l.add(RegistroPlacar(nome, jogo, pontos, '${d.day}/${d.month}'));
     l.sort((a, b) => b.pontos.compareTo(a.pontos));
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kRank, jsonEncode(l.take(100).map((e) => e.toJson()).toList()));
+    await p.setString(_kRank, jsonEncode(l.take(500).map((e) => e.toJson()).toList()));
   }
+
+  /// Pontuações de um jogo específico, da maior para a menor.
+  static Future<List<RegistroPlacar>> doJogo(String jogo) async =>
+      (await todos()).where((r) => r.jogo == jogo).toList();
 
   static Future<void> limpar() async =>
       (await SharedPreferences.getInstance()).remove(_kRank);
