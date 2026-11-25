@@ -51,14 +51,19 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
   final _ctl = TextEditingController();
   final _foco = FocusNode();
   String _nome = '';
-  int _sel = 1;
+  int _sel = 0;
+  final _focoNome = FocusNode();
 
   @override
   void initState() {
     super.initState();
     _tk = createTicker((d) => setState(() => _t = d.inMicroseconds / 1e6))..start();
     Placar.nome().then((n) {
-      if (mounted) setState(() => _nome = n);
+      if (mounted) {
+        setState(() => _nome = n);
+        _ctl.text = n;
+        _ctl.selection = TextSelection(baseOffset: 0, extentOffset: n.length);
+      }
     });
   }
 
@@ -67,6 +72,7 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
     _tk.dispose();
     _ctl.dispose();
     _foco.dispose();
+    _focoNome.dispose();
     super.dispose();
   }
 
@@ -76,35 +82,20 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
     if (mounted) _foco.requestFocus();
   }
 
-  Future<void> _editarNome() async {
-    _ctl.text = _nome;
-    final r = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Seu nome para o ranking'),
-        content: TextField(
-          controller: _ctl,
-          autofocus: true,
-          maxLength: 20,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-          decoration: const InputDecoration(border: OutlineInputBorder(), counterText: ''),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar (Esc)')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, _ctl.text), child: const Text('OK (Enter)')),
-        ],
-      ),
-    );
-    if (r != null) {
-      await Placar.salvarNome(r);
-      if (mounted) setState(() => _nome = r.trim());
-    }
-    if (mounted) _foco.requestFocus();
+  void _nomeAlterado(String v) {
+    _nome = v.trim();
+    Placar.salvarNome(v);
+  }
+
+  void _irParaMenu() {
+    Placar.salvarNome(_ctl.text);
+    _nome = _ctl.text.trim();
+    _focoNome.unfocus();
+    _foco.requestFocus();
+    setState(() {});
   }
 
   List<_Item> get _itens => [
-        _Item('✏️  Nome: ${_nome.isEmpty ? '(Enter para digitar)' : _nome}', 'Aparece no ranking', _editarNome),
         _Item('🐋  Corrida da Baleia', 'Ação em 3 fases! Salve a baleia e o filhote', () => _abrir(const CorridaTela())),
         _Item('🧠  Jogo da Memória', 'Encontre os pares da cultura e do mar', () => _abrir(const MemoriaTela())),
         _Item('🛟  Resgate da Baleia', 'Abra as comportas e leve-a ao mar', () => _abrir(const ResgateTela())),
@@ -113,6 +104,7 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
 
   KeyEventResult _tecla(FocusNode node, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    if (_focoNome.hasFocus) return KeyEventResult.ignored; // digitando o nome
     final k = e.logicalKey;
     final n = _itens.length;
     if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyW) {
@@ -145,15 +137,52 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const Text('Costa das Baleias', style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Colors.white, shadows: [Shadow(blurRadius: 12, color: Colors.black54)])),
                 const Text('Mostra • Consciência Negra e Biodiversidade', style: TextStyle(fontSize: 18, color: Colors.white70)),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
+                _campoNome(),
+                const SizedBox(height: 8),
                 for (var i = 0; i < itens.length; i++) _botao(i, itens[i]),
                 const SizedBox(height: 12),
-                const Text('↑ ↓ escolhem   •   Enter abre   •   Esc volta',
+                const Text('Digite o nome e Enter   •   ↑ ↓ escolhem   •   Enter abre   •   Esc volta',
                     style: TextStyle(fontSize: 16, color: Colors.white70, shadows: [Shadow(blurRadius: 8, color: Colors.black87)])),
               ]),
             ),
           ),
         ]),
+      ),
+    );
+  }
+
+  // campo do nome sempre aberto: é só digitar. Enter ou seta para baixo vai para os jogos.
+  Widget _campoNome() {
+    return SizedBox(
+      width: 460,
+      child: Focus(
+        onKeyEvent: (n, e) {
+          if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.arrowDown) {
+            _irParaMenu();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: TextField(
+          controller: _ctl,
+          focusNode: _focoNome,
+          autofocus: true,
+          maxLength: 20,
+          textInputAction: TextInputAction.done,
+          onChanged: _nomeAlterado,
+          onSubmitted: (_) => _irParaMenu(),
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xCC06202E),
+            border: const OutlineInputBorder(),
+            labelText: '✏️  Seu nome (aparece no ranking)',
+            hintText: 'Digite seu nome e aperte Enter',
+            counterText: '',
+            suffixIcon: IconButton(icon: const Icon(Icons.check_circle, color: Color(0xFFFFB300)), onPressed: _irParaMenu),
+          ),
+        ),
       ),
     );
   }
@@ -171,6 +200,7 @@ class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin
             side: sel ? const BorderSide(color: Color(0xFFFFB300), width: 4) : null,
           ),
           onPressed: () {
+            Placar.salvarNome(_ctl.text);
             setState(() => _sel = i);
             it.acao();
           },

@@ -82,3 +82,7 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 - Foi removido o botão de limpar.
 - Cada partida grava `ranking_mostra.json` ao lado do .exe e em `%APPDATA%\JogosDaMostra`, além do armazenamento antigo (o ranking das versões anteriores continua).
 - Ao abrir, as três fontes são unidas. Para guardar o ranking, copie o arquivo `ranking_mostra.json`.
+
+## Versão 1.5
+- **Corrida da Baleia fechava o jogo inteiro no Windows**: o áudio criava e destruía players o tempo todo (o que derruba o `audioplayers` no Windows). Agora `lib/som.dart` usa um conjunto fixo de players reaproveitados, sem destruir nada; se o áudio falhar, o jogo segue sem som.
+- **Nome do jogador**: o campo fica sempre aberto no topo do menu (basta digitar). Enter ou seta para baixo vai para os jogos; o nome é salvo ao digitar.

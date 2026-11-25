@@ -1385,7 +1385,7 @@ class _CorridaPainter extends CustomPainter {
     }
     // escudo
     if (s.escudoT > 0) {
-      final double raio = (125.0 * math.max(0.6, s.tamCtrl)).toDouble();
+      final raio = 125 * math.max(0.6, s.tamCtrl);
       final a = s.escudoT < 2 ? (math.sin(s.t * 20) > 0 ? 0.5 : 0.15) : 0.4;
       c.drawCircle(Offset(x, y), raio, Paint()..color = const Color(0xFF26C6DA).withValues(alpha: a));
       c.drawCircle(Offset(x, y), raio, Paint()..color = Colors.white.withValues(alpha: a + 0.2)..style = PaintingStyle.stroke..strokeWidth = 3);
