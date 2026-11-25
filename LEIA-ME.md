@@ -97,8 +97,9 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 
 ## Versão 1.8
 
-- **Perguntas no fim da fase**: a fase agora é uma travessia (60 s, 80 s e 120 s, ajuste `_durFase`). No fim aparece "Responder (Enter) / Pular (N)". São 3 perguntas bônus (1 de conhecimento e 2 contas de adição, multiplicação ou divisão com os pontos do jogo), +100 por acerto, errar não tira vida.
-- **Fase final com cargas explosivas**: o navio joga cargas que afundam numa faixa marcada em vermelho e explodem perto da baleia. Explosão tira 1 vida; o escudo protege. Ajustes: `_cargasFase`, `_cargaInt`, `_explRX`, `_explRY`.
+- **Perguntas no fim da fase**: a fase agora é uma travessia (60 s, 80 s e 120 s, ajuste `_durFase`). No fim aparece "Responder (Enter) / Pular (N)". São 3 perguntas bônus sobre a Costa das Baleias e a Consciência Negra, +100 por acerto, e errar não tira vida.
+- **Bolinhas das 4 operações**: `+30/50/100`, `−20/30/50`, `×2` e `÷2` vêm como o krill. A baleia come e os pontos mudam (verdes somam, vermelhas tiram). Limites do ×2 e do ÷2: `_opCapGanho` e `_opCapPerda`.
+- **Cargas explosivas**: o navio joga a partir da fase 2 (1 carga por navio) e na fase 3 até 2. Elas afundam numa faixa marcada em vermelho e explodem perto da baleia. Explosão tira 1 vida; o escudo protege. Ajustes: `_cargasFase`, `_maxCargas`, `_cargaInt`, `_explRX`, `_explRY`.
 - **Cena de chegada**: o vídeo da mãe e do filhote ao pôr do sol (`assets/img/chegada/`) toca na vitória.
 - Imagens `carga.png` e `explosao.png` já incluídas (prompts em `PROMPTS_CARGA_EXPLOSAO.md`). Sem elas o jogo desenha em código.
 - **Cena do anzol**: quando o anzol pesca a baleia, toca o vídeo do navio baixando o anzol (`assets/img/pescada/`) e depois a cena de derrota.

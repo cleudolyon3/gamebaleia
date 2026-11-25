@@ -15,6 +15,10 @@ const double _whaleX = 210;
 const double _tempoResposta = 15;
 const double _surfY = 120; // linha da superficie (onde o navio fica)
 
+// Bolinhas das 4 operacoes (+ - x /): a baleia come e os pontos mudam
+const int _opCapGanho = 500; // maximo que o x2 pode somar de uma vez
+const int _opCapPerda = 250; // maximo que o /2 pode tirar de uma vez
+
 // Anzol: true = pesca na hora quem estiver sendo controlado. false = tira so 1 vida.
 const bool _anzolMata = true;
 const double _anzOffX = -100; // posicao do anzol em relacao ao centro do navio (ponta do guindaste)
@@ -32,18 +36,19 @@ const List<double> _durFase = [60, 80, 120]; // segundos de travessia de cada fa
 const int _perguntasBonus = 3; // perguntas opcionais no fim de cada fase
 const int _pontosBonus = 100; // pontos por pergunta certa no bonus
 
-// Cargas explosivas: o navio joga, elas afundam e explodem (so na fase final)
-const List<bool> _cargasFase = [false, false, true];
-const List<double> _cargaInt = [0, 0, 1.3]; // intervalo base entre cargas (s)
-const double _cargaVel = 260; // velocidade de afundar (px/s)
+// Cargas explosivas: o navio joga, elas afundam e explodem (fases 2 e 3)
+const List<bool> _cargasFase = [false, true, true];
+const List<int> _maxCargas = [0, 1, 2]; // cargas por navio: fase 2 = 1, fase 3 = ate 2
+const List<double> _cargaInt = [0, 1.0, 0.9]; // intervalo base entre cargas (s)
+const double _cargaVel = 300; // velocidade de afundar (px/s)
 const double _cargaOffX = 70; // onde a carga sai, em relacao ao centro do navio
 const double _explRX = 135, _explRY = 100; // alcance da explosao
 const double _explDur = 1.3; // duracao da explosao (s)
 const List<String> _fNomes = ['Águas de Abrolhos', 'Mar Aberto', 'Rota dos Navios'];
 const List<String> _fDicas = [
-  'Coma krill e fuja das redes e dos sacos plásticos. No fim da fase tem perguntas bônus!',
-  'O mar ficou mais fundo e as redes, mais perigosas. Já tem navio por perto!',
-  'Navios lançam anzóis, redes de arrasto e CARGAS EXPLOSIVAS! Saia da faixa marcada em vermelho.',
+  'Coma krill e fuja das redes e dos sacos. Bolinhas + e × somam pontos, − e ÷ tiram!',
+  'O mar ficou mais fundo e as redes, mais perigosas. Os navios agora jogam uma carga explosiva!',
+  'Navios lançam anzóis, redes de arrasto e até 2 cargas explosivas! Saia da faixa marcada em vermelho.',
 ];
 const List<double> _velBase = [215, 250, 285];
 const List<double> _pObst = [0.42, 0.52, 0.58];
@@ -52,7 +57,7 @@ const List<double> _espVar = [0.80, 0.65, 0.50];
 
 // troca = a mae e pescada e o filhote assume o jogo
 enum _Fase { pronto, jogando, transicao, oferta, troca, derrota, vitoria }
-enum _Tipo { rede, saco, krill, escudo, dobro }
+enum _Tipo { rede, saco, krill, escudo, dobro, op }
 
 class _Ent {
   final _Tipo tipo;
@@ -60,6 +65,8 @@ class _Ent {
   double y;
   final int lane;
   bool morta = false;
+  String op = ''; // '+', '−', '×' ou '÷' (so para _Tipo.op)
+  int val = 0;
   _Ent(this.tipo, this.x, this.lane) : y = _lanes[lane];
 }
 
@@ -69,6 +76,7 @@ class _Navio {
   int estado = 0; // 0 chegando, 1 anzol baixado, 2 recolhendo
   double anz = 0; // 0 (recolhido) a 1 (totalmente baixado)
   double t = 0;
+  int lancadas = 0; // cargas ja jogadas por este navio
   _Navio(this.x, this.alvoY);
   double get tipY => _anzTopo + anz * (alvoY - _anzTopo);
 }
@@ -145,7 +153,6 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   double tFase = 0; // tempo de travessia da fase atual
   bool emBonus = false; // perguntas opcionais do fim da fase
   int bonusRestantes = 0, bonusCertas = 0, bonusPerg = 0;
-  List<int> _contas = [0, 1, 2];
   final List<_Carga> cargas = [];
   double proxCarga = 2;
   int ultCargaLane = -1;
@@ -437,7 +444,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
         e.y += (whaleY - e.y) * math.min(1.0, dt * 5);
       }
       final dy = (e.y - whaleY).abs();
-      final comest = e.tipo == _Tipo.krill || e.tipo == _Tipo.escudo || e.tipo == _Tipo.dobro;
+      final comest = e.tipo == _Tipo.krill || e.tipo == _Tipo.escudo || e.tipo == _Tipo.dobro || e.tipo == _Tipo.op;
       if (comest && dy < 56 && e.x < _whaleX + 215 && e.x > _whaleX) comestivelPerto = true;
       if (comest) {
         if (dy < 56 && e.x < _whaleX + 125 && e.x > _whaleX - 20) _comer(e);
@@ -488,17 +495,19 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
         // profundidade do anzol varia a cada barco (sempre sobra a faixa de baixo livre)
         final prof = 95 + _rnd.nextDouble() * 150;
         navio = _Navio(_W + 170, prof);
+        proxCarga = 0.2;
       }
       return;
     }
     n.x -= vel * 0.55 * dt;
     n.t += dt;
-    // fase final: o navio joga cargas explosivas enquanto se aproxima
-    if (_cargasFase[faseNum] && n.estado < 2 && n.x + _cargaOffX > 700 && n.x < _W - 60) {
+    // fases 2 e 3: o navio joga cargas explosivas enquanto se aproxima (1 na fase 2, ate 2 na fase 3)
+    if (_cargasFase[faseNum] && n.lancadas < _maxCargas[faseNum] && n.estado < 2 && n.x + _cargaOffX > 740 && n.x < _W - 20) {
       proxCarga -= dt;
       if (proxCarga <= 0) {
         _soltarCarga(n.x + _cargaOffX);
-        proxCarga = _cargaInt[faseNum] + _rnd.nextDouble() * 0.7;
+        n.lancadas++;
+        proxCarga = _cargaInt[faseNum] + _rnd.nextDouble() * 0.4;
       }
     }
     if (n.estado == 0 && n.x <= _W - 130) {
@@ -606,7 +615,6 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     bonusRestantes = _perguntasBonus;
     bonusPerg = _perguntasBonus;
     bonusCertas = 0;
-    _contas = [0, 1, 2]..shuffle(_rnd);
     _proximaBonus();
   }
 
@@ -626,43 +634,8 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     }
   }
 
-  // 1a pergunta: conhecimento. As outras: contas (soma, multiplicacao, divisao) com os pontos do jogo
-  void _proximaBonus() {
-    final idx = _perguntasBonus - bonusRestantes;
-    _iniciarPergunta(idx == 0 ? null : _gerarConta(_contas[(idx - 1) % 3]));
-  }
-
-  Pergunta _gerarConta(int tipo) {
-    final base = math.max(10, (pontos ~/ 10) * 10);
-    String enun, expl;
-    int r;
-    if (tipo == 0) {
-      final b = 50 * (1 + _rnd.nextInt(6));
-      r = base + b;
-      enun = 'Você tem $base pontos e ganhou mais $b pontos. Quantos pontos você tem agora?';
-      expl = '$base + $b = $r. Na adição, juntamos as quantidades.';
-    } else if (tipo == 1) {
-      final m = 2 + _rnd.nextInt(4);
-      final n = 3 + _rnd.nextInt(5);
-      r = n * 10 * m;
-      enun = 'Cada krill vale 10 pontos. Com o combo x$m, cada krill vale ${10 * m} pontos. Quanto valem $n krills?';
-      expl = '$n × ${10 * m} = $r. Multiplicar é somar a mesma quantidade várias vezes.';
-    } else {
-      final d = [2, 4, 5][_rnd.nextInt(3)];
-      final q = math.max(20, (base ~/ d ~/ 10) * 10);
-      final total = q * d;
-      r = q;
-      enun = 'Você tem $total pontos e vai dividir igualmente entre $d amigos. Quantos pontos cada um recebe?';
-      expl = '$total ÷ $d = $q. Dividir é repartir em partes iguais.';
-    }
-    final ops = <int>{r};
-    final cand = <int>[r + 10, r - 10, r + 20, r - 20, r + 50, r - 50, r + 100, r + 30, r - 30]..shuffle(_rnd);
-    for (final v in cand) {
-      if (v > 0 && ops.length < 4) ops.add(v);
-    }
-    final lista = ops.toList()..shuffle(_rnd);
-    return Pergunta('Matemática', enun, [for (final v in lista) '$v pontos'], lista.indexOf(r), expl);
-  }
+  // perguntas bonus: Costa das Baleias e Consciencia Negra (banco em dados.dart)
+  void _proximaBonus() => _iniciarPergunta();
 
   // rede de arrasto: cobre 2 faixas e so deixa 1 livre
   void _arrastar(_Arrasto a, double dt, double vel) {
@@ -773,14 +746,40 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     } else if (r < po) {
       ents.add(_Ent(_Tipo.saco, _W + 80, l));
       _obstaculoExtra(l);
-    } else if (r < 0.93) {
+    } else if (r < 0.88) {
       final n = faseNum == 0 ? 3 : 4;
       for (var i = 0; i < n; i++) {
         ents.add(_Ent(_Tipo.krill, _W + 80 + i * 55, l));
       }
+    } else if (r < 0.96) {
+      _spawnOperacao(l);
     } else {
-      ents.add(_Ent(_rnd.nextBool() ? _Tipo.escudo : _Tipo.dobro, _W + 80, l));
+      ents.add(_Ent(_Tipo.escudo, _W + 80, l));
     }
+  }
+
+  // bolinha de operacao: + e x somam pontos, - e / tiram
+  void _spawnOperacao(int l) {
+    final e = _Ent(_Tipo.op, _W + 80, l);
+    switch (_rnd.nextInt(4)) {
+      case 0:
+        e.op = '+';
+        e.val = const [30, 50, 100][_rnd.nextInt(3)];
+        break;
+      case 1:
+        e.op = '−';
+        e.val = const [20, 30, 50][_rnd.nextInt(3)];
+        break;
+      case 2:
+        e.op = '×';
+        e.val = 2;
+        break;
+      default:
+        e.op = '÷';
+        e.val = 2;
+        break;
+    }
+    ents.add(e);
   }
 
   // na fase 3 as vezes vem um segundo obstaculo ao lado (sempre sobra uma faixa livre)
@@ -893,6 +892,26 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
         Som.tocar('come', vol: 0.5, gapMs: 90);
         _estourar(e.x, e.y, 4);
         _alimentar();
+        break;
+      case _Tipo.op:
+        final antes = pontos;
+        var depois = pontos;
+        if (e.op == '+') {
+          depois = pontos + e.val;
+        } else if (e.op == '−') {
+          depois = math.max(0, pontos - e.val);
+        } else if (e.op == '×') {
+          depois = pontos + math.min(pontos * (e.val - 1), _opCapGanho);
+        } else {
+          depois = pontos - math.min(pontos - pontos ~/ e.val, _opCapPerda);
+        }
+        pontos = depois;
+        final delta = depois - antes;
+        final bom = e.op == '+' || e.op == '×';
+        textos.add(_Texto('${e.op}${e.val}  (${delta >= 0 ? '+' : ''}$delta)', e.x, e.y - 30,
+            bom ? const Color(0xFFA5D6A7) : const Color(0xFFFF8A80)));
+        Som.tocar(bom ? 'acerto' : 'erro', vol: 0.5);
+        _estourar(e.x, e.y, 6);
         break;
       case _Tipo.escudo:
         escudoT = 8;
@@ -1262,7 +1281,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
             style: TextStyle(color: Colors.white, fontSize: 30 * sc, fontWeight: FontWeight.w900)),
         SizedBox(height: 10 * sc),
         Text(
-          'Quer responder $_perguntasBonus perguntas e contas para ganhar bônus?\n'
+          'Quer responder $_perguntasBonus perguntas sobre a Costa das Baleias e a Consciência Negra?\n'
           'Cada acerto vale +$_pontosBonus pontos. Errar não tira vida!',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white70, fontSize: 18 * sc, height: 1.4),
@@ -1298,8 +1317,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
           'Nade pelas 3 faixas com as setas ↑ ↓ (ou W/S, ou o mouse).\n'
           'Coma krill: ele faz o filhote crescer. Fuja de redes, sacos e anzóis!\n'
           'Se a mãe for pescada, o filhote assume. Se o filhote se perder, o jogo acaba.\n'
-          'Na última fase os navios jogam cargas explosivas: saia da faixa marcada em vermelho!\n'
-          'No fim de cada fase você pode responder perguntas e contas para ganhar bônus.\n'
+          'Bolinhas + e × somam pontos, − e ÷ tiram: coma as verdes e fuja das vermelhas!\n'
+          'Navios jogam cargas explosivas (1 na fase 2, até 2 na fase 3): saia da faixa vermelha!\n'
+          'No fim de cada fase há perguntas sobre a Costa das Baleias e a Consciência Negra para ganhar bônus.\n'
           'Sobreviva às 3 fases para chegar a Abrolhos.',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white70, fontSize: 17 * sc, height: 1.4),
@@ -1737,6 +1757,21 @@ class _CorridaPainter extends CustomPainter {
         break;
       case _Tipo.krill:
         desenharKrill(c, e.x, e.y, s.t);
+        break;
+      case _Tipo.op:
+        {
+          final bomOp = e.op == '+' || e.op == '×';
+          final corOp = bomOp ? const Color(0xFF2E9E5B) : const Color(0xFFD94B3F);
+          final pOp = 1 + math.sin(s.t * 6 + e.x * 0.01) * 0.06;
+          c.drawCircle(Offset(e.x, e.y), 32 * pOp, Paint()..color = corOp.withValues(alpha: 0.92));
+          c.drawCircle(Offset(e.x, e.y), 32 * pOp, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 3);
+          c.drawCircle(Offset(e.x - 11, e.y - 12), 7, Paint()..color = const Color(0x55FFFFFF));
+          final tOp = TextPainter(
+            text: TextSpan(text: '${e.op}${e.val}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          tOp.paint(c, Offset(e.x - tOp.width / 2, e.y - tOp.height / 2));
+        }
         break;
       case _Tipo.escudo:
       case _Tipo.dobro:
