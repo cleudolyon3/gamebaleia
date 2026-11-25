@@ -34,7 +34,7 @@ const List<String> _fNomes = ['Águas de Abrolhos', 'Mar Aberto', 'Rota dos Navi
 const List<String> _fDicas = [
   'Coma krill, responda as perguntas e fuja das redes e dos sacos plásticos.',
   'O mar ficou mais fundo e as redes, mais perigosas. Já tem navio por perto!',
-  'Navios lançam anzóis! Fique abaixo da ponta do anzol e proteja o filhote.',
+  'Navios lançam anzóis e redes de arrasto! Fique abaixo da ponta do anzol e proteja o filhote.',
 ];
 const List<double> _velBase = [215, 250, 285];
 const List<double> _pObst = [0.42, 0.52, 0.58];
@@ -62,6 +62,14 @@ class _Navio {
   double t = 0;
   _Navio(this.x, this.alvoY);
   double get tipY => _anzTopo + anz * (alvoY - _anzTopo);
+}
+
+// rede de arrasto: um barco puxa uma rede que cobre 2 faixas e deixa 1 livre
+class _Arrasto {
+  double x;
+  final int livre; // faixa (0, 1 ou 2) por onde a baleia pode passar
+  double t = 0;
+  _Arrasto(this.x, this.livre);
 }
 
 class _Bolha {
@@ -129,6 +137,10 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
 
   // navio e anzol
   _Navio? navio;
+  _Arrasto? arrasto;
+  bool redeFeita = false; // a rede de arrasto aparece uma unica vez por partida
+  int arrastoFase = 1; // em qual fase ela aparece
+  double proxArrasto = -1;
   double proxNavio = 8;
   bool causaAnzol = false;
 
@@ -194,6 +206,10 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     krillF = 0;
     filhoteY = _lanes[1] + 64;
     navio = null;
+    arrasto = null;
+    redeFeita = false;
+    arrastoFase = 1 + _rnd.nextInt(2);
+    proxArrasto = -1;
     topRank = [];
     meuIdx = -1;
     proxBaleiaSom = 6 + _rnd.nextDouble() * 6;
@@ -213,7 +229,10 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     proxSpawn = 1.6;
     sinceQ = 0;
     limiarP = pontos + 120;
-    proxNavio = n == 1 ? 8 + _rnd.nextDouble() * 4 : 6 + _rnd.nextDouble() * 3;
+    arrasto = null;
+    proxArrasto = (!redeFeita && n == arrastoFase) ? 7 + _rnd.nextDouble() * 9 : -1;
+    // mais barcos: ja aparecem na fase 1 e passam com mais frequencia
+    proxNavio = n == 0 ? 11 + _rnd.nextDouble() * 4 : (n == 1 ? 4 + _rnd.nextDouble() * 3 : 3 + _rnd.nextDouble() * 2.5);
     faseBannerT = 3.0;
     tFim = 0;
     fase = _Fase.jogando;
@@ -255,12 +274,14 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     } else if (fase == _Fase.transicao) {
       ents.clear();
       navio = null;
+      arrasto = null;
       tFim += dt;
       boca += ((tFim % 1.2 < 0.5 ? 1.0 : 0.0) - boca) * math.min(1.0, dt * 10);
       if (tFim > 3.4) _iniciarFase(faseNum + 1);
     } else if (fase == _Fase.troca) {
       ents.clear();
       navio = null;
+      arrasto = null;
       tFim += dt;
       boca += (0 - boca) * math.min(1.0, dt * 6);
       final dur = Arte.quadros('derrota') > 0 ? Arte.quadros('derrota') / 12 + 0.6 : 4.2;
@@ -390,13 +411,31 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
 
   // ---------------------------------------------------------------- navio e anzol
   void _navios(double dt, double vel) {
+    // ---- rede de arrasto (rara: uma vez por partida)
+    final a = arrasto;
+    if (a != null) {
+      _arrastar(a, dt, vel);
+      return;
+    }
     final n = navio;
     if (n == null) {
-      if (faseNum == 0 || sinceQ > 20) return;
+      if (proxArrasto > 0) {
+        proxArrasto -= dt;
+        if (proxArrasto <= 0) {
+          proxArrasto = -1;
+          redeFeita = true;
+          arrasto = _Arrasto(_W + 420, _rnd.nextInt(3));
+          textos.add(_Texto('REDE DE ARRASTO! Vá para a faixa livre', _W - 330, 170, const Color(0xFFFFAB40)));
+          Som.tocar('anzol', vol: 0.7);
+          return;
+        }
+      }
+      if (sinceQ > 20) return;
       proxNavio -= dt;
       if (proxNavio <= 0) {
-        final l = _rnd.nextDouble() < (faseNum == 1 ? 0.75 : 0.5) ? 0 : 1;
-        navio = _Navio(_W + 170, _lanes[l] - 45);
+        // profundidade do anzol varia a cada barco (sempre sobra a faixa de baixo livre)
+        final prof = 95 + _rnd.nextDouble() * 150;
+        navio = _Navio(_W + 170, prof);
       }
       return;
     }
@@ -408,7 +447,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       Som.tocar('anzol', vol: 0.7);
     }
     if (n.estado == 1) {
-      n.anz = math.min(1.0, n.anz + dt / 1.3);
+      n.anz = math.min(1.0, n.anz + dt / (faseNum == 0 ? 1.3 : (faseNum == 1 ? 1.0 : 0.8)));
       if (n.x < _whaleX - 175) n.estado = 2;
     } else if (n.estado == 2) {
       n.anz = math.max(0.0, n.anz - dt / 0.9);
@@ -433,8 +472,36 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     }
     if (n.x < -230) {
       navio = null;
-      proxNavio = faseNum == 1 ? 14 + _rnd.nextDouble() * 6 : 9 + _rnd.nextDouble() * 5;
+      proxNavio = faseNum == 0 ? 16 + _rnd.nextDouble() * 6 : (faseNum == 1 ? 7 + _rnd.nextDouble() * 3 : 5 + _rnd.nextDouble() * 3);
     }
+  }
+
+  // rede de arrasto: cobre 2 faixas e so deixa 1 livre
+  void _arrastar(_Arrasto a, double dt, double vel) {
+    a.x -= vel * 0.62 * dt;
+    a.t += dt;
+    final dx = (a.x - _whaleX).abs();
+    if (dx < 70) {
+      var pega = false;
+      for (var l = 0; l < 3; l++) {
+        if (l != a.livre && (whaleY - _lanes[l]).abs() < 62) pega = true;
+      }
+      if (pega) {
+        if (escudoT > 0) {
+          _estourar(a.x, whaleY, 12);
+          textos.add(_Texto('Rede rasgada!', a.x, whaleY - 30, const Color(0xFF80DEEA)));
+          Som.tocar('poder');
+          arrasto = null;
+        } else if (_anzolMata) {
+          _pescada(a.x, whaleY);
+        } else if (invuln <= 0) {
+          _perderVida(a.x, whaleY);
+          arrasto = null;
+        }
+        return;
+      }
+    }
+    if (a.x < -380) arrasto = null;
   }
 
   // o anzol pegou quem o jogador controla
@@ -458,6 +525,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     perguntaAtiva = false;
     respondida = false;
     navio = null;
+    arrasto = null;
     Som.tocar('pescada');
     tFim = 0;
     if (!ctrlFilhote && filhoteVivo) {
@@ -547,6 +615,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     sel = 0;
     ents.clear(); // limpa a tela: ao voltar não há obstáculo em cima da baleia
     navio = null; // o navio sai de cena: ao voltar não há anzol em cima da baleia
+    arrasto = null;
     perguntaAtiva = true;
     boca = 0;
     _foco.requestFocus();
@@ -1109,6 +1178,7 @@ class _CorridaPainter extends CustomPainter {
       c.drawCircle(Offset(b.x, b.y), b.r, Paint()..color = const Color(0x55FFFFFF));
     }
     _navio(c);
+    _arrastoDesenho(c);
     for (final e in s.ents) {
       if (e.morta) continue;
       _ent(c, e);
@@ -1242,6 +1312,48 @@ class _CorridaPainter extends CustomPainter {
       espuma.lineTo(x, _surfY + math.sin(x * 0.03 + s.t * 2) * 4);
     }
     c.drawPath(espuma, Paint()..color = const Color(0xCCFFFFFF)..style = PaintingStyle.stroke..strokeWidth = 3);
+  }
+
+  // rede de arrasto: barco na superficie puxando uma rede que cobre 2 faixas
+  void _arrastoDesenho(Canvas c) {
+    final a = s.arrasto;
+    if (a == null) return;
+    final bob = math.sin(s.t * 2) * 2.5;
+    final y = _surfY + bob;
+    _desenharNavio(c, a.x + 260, y);
+    // cabos do barco ate a rede
+    final cabo = Paint()..color = const Color(0xFFBCAAA4)..strokeWidth = 3;
+    c.drawLine(Offset(a.x + 160, y + 30), Offset(a.x, _lanes[0] - 70), cabo);
+    c.drawLine(Offset(a.x + 160, y + 30), Offset(a.x, _lanes[2] + 70), cabo);
+    // faixa livre brilha em verde; o resto e rede
+    final fio = Paint()..color = const Color(0xCCFFFFFF)..strokeWidth = 2.5..style = PaintingStyle.stroke;
+    final cor = Paint()..color = const Color(0x55E0F2F1);
+    for (var l = 0; l < 3; l++) {
+      final top = _lanes[l] - 60, bot = _lanes[l] + 60;
+      if (l == a.livre) {
+        c.drawRect(Rect.fromLTRB(a.x - 150, top, a.x + 30, bot), Paint()..color = const Color(0x2266BB6A));
+        continue;
+      }
+      final r = Rect.fromLTRB(a.x - 22, top, a.x + 22, bot);
+      c.drawRect(r, cor);
+      for (var yy = top; yy <= bot; yy += 18) {
+        c.drawLine(Offset(r.left, yy), Offset(r.right, yy), fio);
+      }
+      for (var xx = r.left; xx <= r.right; xx += 14) {
+        c.drawLine(Offset(xx, top), Offset(xx, bot), fio);
+      }
+    }
+    // seta indicando a faixa livre (some quando a rede chega perto)
+    if (a.x > _whaleX + 120) {
+      final yl = _lanes[a.livre];
+      final tp = Paint()..color = const Color(0xFF69F0AE);
+      final path = Path()
+        ..moveTo(_whaleX + 150, yl - 16)
+        ..lineTo(_whaleX + 190, yl)
+        ..lineTo(_whaleX + 150, yl + 16)
+        ..close();
+      c.drawPath(path, tp);
+    }
   }
 
   void _navio(Canvas c) {

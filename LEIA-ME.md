@@ -89,3 +89,8 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 
 ## Versão 1.6
 - **Áudio removido** (sem o pacote `audioplayers` e sem `assets/audio`): no Windows da escola o plugin de som pedia senha de administrador e bloqueava o jogo. `lib/som.dart` ficou como um stub vazio, então o resto do código continua igual.
+
+## Versão 1.7 — mais difícil
+- **Mais barcos**: aparecem já na fase 1 e passam bem mais vezes nas fases 2 e 3; o anzol desce mais rápido a cada fase.
+- **Profundidade do anzol varia** a cada barco (às vezes só a faixa de cima é atingida, às vezes as duas de cima). A faixa de baixo sempre fica livre.
+- **Rede de arrasto**: rara, **uma única vez por partida** (fase 2 ou 3, sorteada). Um barco puxa uma rede que cobre 2 faixas e **deixa só 1 faixa livre** (sorteada), marcada em verde e com uma seta. Se a baleia estiver numa faixa coberta quando a rede passar, é pescada (o escudo rasga a rede).
