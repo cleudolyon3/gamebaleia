@@ -86,3 +86,6 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 ## Versão 1.5
 - **Corrida da Baleia fechava o jogo inteiro no Windows**: o áudio criava e destruía players o tempo todo (o que derruba o `audioplayers` no Windows). Agora `lib/som.dart` usa um conjunto fixo de players reaproveitados, sem destruir nada; se o áudio falhar, o jogo segue sem som.
 - **Nome do jogador**: o campo fica sempre aberto no topo do menu (basta digitar). Enter ou seta para baixo vai para os jogos; o nome é salvo ao digitar.
+
+## Versão 1.6
+- **Áudio removido** (sem o pacote `audioplayers` e sem `assets/audio`): no Windows da escola o plugin de som pedia senha de administrador e bloqueava o jogo. `lib/som.dart` ficou como um stub vazio, então o resto do código continua igual.
