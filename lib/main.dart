@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'arte.dart';
 import 'baleia.dart';
 import 'corrida.dart';
@@ -38,83 +39,149 @@ class MenuTela extends StatefulWidget {
   State<MenuTela> createState() => _MenuTelaState();
 }
 
+class _Item {
+  final String titulo, sub;
+  final VoidCallback acao;
+  const _Item(this.titulo, this.sub, this.acao);
+}
+
 class _MenuTelaState extends State<MenuTela> with SingleTickerProviderStateMixin {
   late final Ticker _tk;
   double _t = 0;
-  final _nome = TextEditingController();
+  final _ctl = TextEditingController();
+  final _foco = FocusNode();
+  String _nome = '';
+  int _sel = 1;
 
   @override
   void initState() {
     super.initState();
     _tk = createTicker((d) => setState(() => _t = d.inMicroseconds / 1e6))..start();
-    Placar.nome().then((n) => _nome.text = n);
+    Placar.nome().then((n) {
+      if (mounted) setState(() => _nome = n);
+    });
   }
 
   @override
   void dispose() {
     _tk.dispose();
-    _nome.dispose();
+    _ctl.dispose();
+    _foco.dispose();
     super.dispose();
   }
 
   Future<void> _abrir(Widget tela) async {
-    await Placar.salvarNome(_nome.text);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => tela));
+    if (mounted) _foco.requestFocus();
+  }
+
+  Future<void> _editarNome() async {
+    _ctl.text = _nome;
+    final r = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Seu nome para o ranking'),
+        content: TextField(
+          controller: _ctl,
+          autofocus: true,
+          maxLength: 20,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+          decoration: const InputDecoration(border: OutlineInputBorder(), counterText: ''),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar (Esc)')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, _ctl.text), child: const Text('OK (Enter)')),
+        ],
+      ),
+    );
+    if (r != null) {
+      await Placar.salvarNome(r);
+      if (mounted) setState(() => _nome = r.trim());
+    }
+    if (mounted) _foco.requestFocus();
+  }
+
+  List<_Item> get _itens => [
+        _Item('✏️  Nome: ${_nome.isEmpty ? '(Enter para digitar)' : _nome}', 'Aparece no ranking', _editarNome),
+        _Item('🐋  Corrida da Baleia', 'Ação em 3 fases! Salve a baleia e o filhote', () => _abrir(const CorridaTela())),
+        _Item('🧠  Jogo da Memória', 'Encontre os pares da cultura e do mar', () => _abrir(const MemoriaTela())),
+        _Item('🛟  Resgate da Baleia', 'Abra as comportas e leve-a ao mar', () => _abrir(const ResgateTela())),
+        _Item('🏆  Ranking', 'Melhores pontuações neste computador', () => _abrir(const RankingTela())),
+      ];
+
+  KeyEventResult _tecla(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    final n = _itens.length;
+    if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyW) {
+      setState(() => _sel = (_sel + n - 1) % n);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.keyS) {
+      setState(() => _sel = (_sel + 1) % n);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter || k == LogicalKeyboardKey.space) {
+      _itens[_sel].acao();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   @override
   Widget build(BuildContext context) {
+    final itens = _itens;
     return Scaffold(
-      body: Stack(children: [
-        Positioned.fill(child: CustomPaint(painter: _MenuPainter(_t))),
-        Center(
-          child: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('Costa das Baleias', style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Colors.white, shadows: [Shadow(blurRadius: 12, color: Colors.black54)])),
-              const Text('Mostra • Consciência Negra e Biodiversidade', style: TextStyle(fontSize: 18, color: Colors.white70)),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: 320,
-                child: TextField(
-                  controller: _nome,
-                  textAlign: TextAlign.center,
-                  maxLength: 20,
-                  decoration: const InputDecoration(
-                    labelText: 'Seu nome (para o ranking)',
-                    filled: true,
-                    fillColor: Color(0x99000000),
-                    border: OutlineInputBorder(),
-                    counterText: '',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _botao('🐋  Corrida da Baleia', 'Ação em 3 fases! Salve a baleia e o filhote', () => _abrir(const CorridaTela())),
-              _botao('🧠  Jogo da Memória', 'Encontre os pares da cultura e do mar', () => _abrir(const MemoriaTela())),
-              _botao('🛟  Resgate da Baleia', 'Abra as comportas e leve-a ao mar', () => _abrir(const ResgateTela())),
-              _botao('🏆  Ranking', 'Melhores pontuações neste computador', () => _abrir(const RankingTela())),
-            ]),
+      body: Focus(
+        focusNode: _foco,
+        autofocus: true,
+        onKeyEvent: _tecla,
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: _MenuPainter(_t))),
+          Center(
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Costa das Baleias', style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Colors.white, shadows: [Shadow(blurRadius: 12, color: Colors.black54)])),
+                const Text('Mostra • Consciência Negra e Biodiversidade', style: TextStyle(fontSize: 18, color: Colors.white70)),
+                const SizedBox(height: 18),
+                for (var i = 0; i < itens.length; i++) _botao(i, itens[i]),
+                const SizedBox(height: 12),
+                const Text('↑ ↓ escolhem   •   Enter abre   •   Esc volta',
+                    style: TextStyle(fontSize: 16, color: Colors.white70, shadows: [Shadow(blurRadius: 8, color: Colors.black87)])),
+              ]),
+            ),
           ),
-        ),
-      ]),
+        ]),
+      ),
     );
   }
 
-  Widget _botao(String t, String sub, VoidCallback f) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: SizedBox(
-          width: 420,
-          child: FilledButton(
-            style: FilledButton.styleFrom(padding: const EdgeInsets.all(14), backgroundColor: const Color(0xDD0E6E8C)),
-            onPressed: f,
-            child: Column(children: [
-              Text(t, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-              Text(sub, style: const TextStyle(fontSize: 14, color: Colors.white70)),
-            ]),
+  Widget _botao(int i, _Item it) {
+    final sel = i == _sel;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: SizedBox(
+        width: 460,
+        child: FilledButton(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.all(14),
+            backgroundColor: sel ? const Color(0xFF1389A0) : const Color(0xDD0E6E8C),
+            side: sel ? const BorderSide(color: Color(0xFFFFB300), width: 4) : null,
           ),
+          onPressed: () {
+            setState(() => _sel = i);
+            it.acao();
+          },
+          child: Column(children: [
+            Text(it.titulo, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+            Text(it.sub, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+          ]),
         ),
-      );
+      ),
+    );
+  }
 }
 
 class _MenuPainter extends CustomPainter {
@@ -147,34 +214,45 @@ class RankingTela extends StatefulWidget {
   State<RankingTela> createState() => _RankingTelaState();
 }
 
-class _RankingTelaState extends State<RankingTela> {
+class _RankingTelaState extends State<RankingTela> with SingleTickerProviderStateMixin {
   List<RegistroPlacar> _l = [];
   // nomes iguais aos usados em Placar.registrar (não mudar, senão o ranking antigo some da aba)
   static const _abas = ['Geral', '🐋 Corrida', '🧠 Memória', '🛟 Resgate'];
   static const List<String?> _jogos = [null, 'Corrida da Baleia', 'Memória', 'Resgate da Baleia'];
+  late final TabController _tab = TabController(length: _abas.length, vsync: this);
+  final _foco = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    Placar.todos().then((l) => setState(() => _l = l));
+    Placar.todos().then((l) {
+      if (mounted) setState(() => _l = l);
+    });
   }
 
-  Future<void> _limpar() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apagar o ranking?'),
-        content: const Text('As pontuações de todos os jogos serão apagadas. Isso não pode ser desfeito.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apagar tudo')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await Placar.limpar();
-      if (mounted) setState(() => _l = []);
+  @override
+  void dispose() {
+    _tab.dispose();
+    _foco.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _tecla(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.keyA) {
+      _tab.animateTo(math.max(0, _tab.index - 1));
+      return KeyEventResult.handled;
     }
+    if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.keyD) {
+      _tab.animateTo(math.min(_abas.length - 1, _tab.index + 1));
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter) {
+      Navigator.of(context).maybePop();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   Widget _lista(String? jogo) {
@@ -199,16 +277,17 @@ class _RankingTelaState extends State<RankingTela> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: _abas.length,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('🏆 Ranking'),
-          backgroundColor: const Color(0xFF06202E),
-          actions: [TextButton(onPressed: _limpar, child: const Text('Limpar'))],
-          bottom: TabBar(tabs: [for (final a in _abas) Tab(text: a)]),
-        ),
-        body: TabBarView(children: [for (final j in _jogos) _lista(j)]),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('🏆 Ranking   (← → trocam de aba, Esc volta)'),
+        backgroundColor: const Color(0xFF06202E),
+        bottom: TabBar(controller: _tab, tabs: [for (final a in _abas) Tab(text: a)]),
+      ),
+      body: Focus(
+        focusNode: _foco,
+        autofocus: true,
+        onKeyEvent: _tecla,
+        child: TabBarView(controller: _tab, children: [for (final j in _jogos) _lista(j)]),
       ),
     );
   }

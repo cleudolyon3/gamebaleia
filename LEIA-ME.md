@@ -61,3 +61,24 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 - Tela cheia na mostra: F11 não vem pronto; se quiser, adiciono o pacote `window_manager`.
 - Imagens: veja `PROMPTS_IMAGENS_BALEIA.md` e, para a versão 1.1 (filhote, anzol, navio, fundos das fases), `PROMPTS_LEONARDO_V2.md`. Sem imagens o jogo usa arte desenhada em código.
 - Ranking: salvo no próprio computador (shared_preferences). Dá para ligar na API do Calvário/Mgestor depois.
+
+## Versão 1.4
+
+**Teclado em tudo**
+- Menu: ↑ ↓ escolhem, Enter abre (o item "Nome" abre a digitação).
+- Corrida: ↑ ↓ mudam de faixa. Na pergunta: ↑ ↓ escolhem, Enter confirma (ou 1, 2, 3). Enter continua. M liga/desliga o som. Esc volta.
+- Memória: setas movem o cursor, Enter vira a carta.
+- Resgate: ↑ ↓ escolhem, Enter confirma (ou 1 a 4), Enter continua.
+- Ranking: ← → trocam de aba, Esc volta.
+
+**Filhote (aparece uma vez por partida)**
+- A mãe começa com o filhote ao lado. Batidas em rede ou saco tiram vidas só de quem você controla.
+- Se a mãe perde as vidas ou é pescada, o filhote assume (2 vidas, menor).
+- Cada krill comido faz o filhote crescer. Com 20 krill ele vira baleia adulta e ganha 1 vida.
+- Se o filhote for perdido, o jogo acaba. Chegar ao fim com filhote dá +500 (+300 se ele cresceu).
+- Ajustes em corrida.dart: `_krillMeta`, `_vidasFilhote`.
+
+**Ranking em arquivo, sem opção de apagar**
+- Foi removido o botão de limpar.
+- Cada partida grava `ranking_mostra.json` ao lado do .exe e em `%APPDATA%\JogosDaMostra`, além do armazenamento antigo (o ranking das versões anteriores continua).
+- Ao abrir, as três fontes são unidas. Para guardar o ranking, copie o arquivo `ranking_mostra.json`.

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'placar.dart';
 
 class _Simbolo {
@@ -36,6 +37,8 @@ class _MemoriaTelaState extends State<MemoriaTela> {
   String _fato = 'Encontre os pares!';
   bool _fim = false;
   int _pontos = 0;
+  int _cur = 0; // carta selecionada pelo teclado
+  final _foco = FocusNode();
 
   @override
   void initState() {
@@ -46,6 +49,7 @@ class _MemoriaTelaState extends State<MemoriaTela> {
   @override
   void dispose() {
     _timer?.cancel();
+    _foco.dispose();
     super.dispose();
   }
 
@@ -59,6 +63,7 @@ class _MemoriaTelaState extends State<MemoriaTela> {
     _erros = 0;
     _seg = 0;
     _fim = false;
+    _cur = 0;
     _fato = 'Encontre os pares!';
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && !_fim) setState(() => _seg++);
@@ -104,8 +109,44 @@ class _MemoriaTelaState extends State<MemoriaTela> {
 
   String get _tempo => '${_seg ~/ 60}:${(_seg % 60).toString().padLeft(2, '0')}';
 
+  KeyEventResult _tecla(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    if (k == LogicalKeyboardKey.escape) {
+      Navigator.of(context).maybePop();
+      return KeyEventResult.handled;
+    }
+    final ok = k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter || k == LogicalKeyboardKey.space;
+    if (_fim) {
+      if (ok) {
+        _novo();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    final n = _cartas.length;
+    if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.keyA) {
+      setState(() => _cur = (_cur % 4 == 0) ? _cur + 3 : _cur - 1);
+    } else if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.keyD) {
+      setState(() => _cur = (_cur % 4 == 3) ? _cur - 3 : _cur + 1);
+    } else if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyW) {
+      setState(() => _cur = (_cur - 4 + n) % n);
+    } else if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.keyS) {
+      setState(() => _cur = (_cur + 4) % n);
+    } else if (ok) {
+      _toca(_cur);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
   @override
   Widget build(BuildContext context) {
+    return Focus(focusNode: _foco, autofocus: true, onKeyEvent: _tecla, child: _corpo(context));
+  }
+
+  Widget _corpo(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('🧠 Jogo da Memória'),
@@ -122,7 +163,7 @@ class _MemoriaTelaState extends State<MemoriaTela> {
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(color: const Color(0x66000000), borderRadius: BorderRadius.circular(12)),
-            child: Text(_fato, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+            child: Text('$_fato\n(setas movem  •  Enter vira a carta  •  Esc volta)', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
           ),
           Expanded(
             child: Center(
@@ -150,9 +191,9 @@ class _MemoriaTelaState extends State<MemoriaTela> {
                           Text('$_pontos pontos  •  $_tempo  •  $_erros erros', style: const TextStyle(color: Color(0xFFFFE082), fontSize: 20, fontWeight: FontWeight.w800)),
                           const SizedBox(height: 14),
                           Row(mainAxisSize: MainAxisSize.min, children: [
-                            FilledButton(onPressed: _novo, child: const Text('Jogar de novo')),
+                            FilledButton(onPressed: _novo, child: const Text('Jogar de novo (Enter)')),
                             const SizedBox(width: 10),
-                            OutlinedButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Menu', style: TextStyle(color: Colors.white))),
+                            OutlinedButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Menu (Esc)', style: TextStyle(color: Colors.white))),
                           ]),
                         ]),
                       ),
@@ -185,7 +226,9 @@ class _MemoriaTelaState extends State<MemoriaTela> {
               decoration: BoxDecoration(
                 color: mostrando ? (ok ? const Color(0xFFC8E6C9) : const Color(0xFFE8FAFF)) : const Color(0xFF1389A0),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: ok ? const Color(0xFF43A047) : Colors.white54, width: 3),
+                border: Border.all(
+                    color: (i == _cur && !_fim) ? const Color(0xFFFFB300) : (ok ? const Color(0xFF43A047) : Colors.white54),
+                    width: (i == _cur && !_fim) ? 6 : 3),
               ),
               alignment: Alignment.center,
               child: mostrando

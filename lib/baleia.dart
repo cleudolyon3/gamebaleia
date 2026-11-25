@@ -23,9 +23,9 @@ void desenharBaleia(Canvas c, double x, double y,
     return;
   }
 
-  final corpo = Paint()..color = const Color(0xFF2B4A63).withOpacity(opacidade);
-  final claro = Paint()..color = const Color(0xFFDCE8EE).withOpacity(opacidade);
-  final sombra = Paint()..color = const Color(0xFF1B3246).withOpacity(opacidade);
+  final corpo = Paint()..color = const Color(0xFF2B4A63).withValues(alpha: opacidade);
+  final claro = Paint()..color = const Color(0xFFDCE8EE).withValues(alpha: opacidade);
+  final sombra = Paint()..color = const Color(0xFF1B3246).withValues(alpha: opacidade);
 
   // cauda
   final bate = math.sin(t * 7) * 10;
@@ -59,7 +59,7 @@ void desenharBaleia(Canvas c, double x, double y,
     ..close();
   c.drawPath(barriga, claro);
   final sulco = Paint()
-    ..color = const Color(0xFF9DB6C4).withOpacity(opacidade)
+    ..color = const Color(0xFF9DB6C4).withValues(alpha: opacidade)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1.6;
   for (var i = 0; i < 6; i++) {
@@ -79,13 +79,13 @@ void desenharBaleia(Canvas c, double x, double y,
       ..lineTo(68, -6)
       ..lineTo(pt.dx, pt.dy)
       ..close();
-    c.drawPath(interior, Paint()..color = const Color(0xFF8A2433).withOpacity(opacidade));
+    c.drawPath(interior, Paint()..color = const Color(0xFF8A2433).withValues(alpha: opacidade));
     final lingua = Path()
       ..moveTo(8, 2)
       ..quadraticBezierTo(34, 6 + boca * 14, 52, 4 + boca * 20)
       ..quadraticBezierTo(30, 14 + boca * 12, 8, 8)
       ..close();
-    c.drawPath(lingua, Paint()..color = const Color(0xFFD9707F).withOpacity(opacidade));
+    c.drawPath(lingua, Paint()..color = const Color(0xFFD9707F).withValues(alpha: opacidade));
   }
   c.rotate(ang);
   final mand = Path()
@@ -114,22 +114,24 @@ void desenharBaleia(Canvas c, double x, double y,
   c.restore();
 
   // olho
-  c.drawCircle(const Offset(64, -6), 5, Paint()..color = Colors.white.withOpacity(opacidade));
-  c.drawCircle(const Offset(65, -6), 2.6, Paint()..color = const Color(0xFF06202E).withOpacity(opacidade));
+  c.drawCircle(const Offset(64, -6), 5, Paint()..color = Colors.white.withValues(alpha: opacidade));
+  c.drawCircle(const Offset(65, -6), 2.6, Paint()..color = const Color(0xFF06202E).withValues(alpha: opacidade));
 
   // calombos
-  final cal = Paint()..color = const Color(0xFF3C6079).withOpacity(opacidade);
+  final cal = Paint()..color = const Color(0xFF3C6079).withValues(alpha: opacidade);
   for (final p in const [Offset(86, -12), Offset(74, -22), Offset(90, -2)]) {
     c.drawCircle(p, 2.4, cal);
   }
   c.restore();
 }
 
-/// Filhote da baleia: usa assets/img/filhote.png se existir, senao a baleia desenhada em tamanho pequeno.
-void desenharFilhote(Canvas c, double x, double y, {double tilt = 0, double t = 0, double opacidade = 1}) {
+/// Filhote da baleia. [escala] 1 = tamanho de uma baleia adulta (270 px de largura).
+/// Usa assets/img/filhote.png se existir, senao a baleia desenhada em tamanho menor.
+void desenharFilhote(Canvas c, double x, double y,
+    {double escala = 0.4, double tilt = 0, double t = 0, double opacidade = 1}) {
   final img = Arte.get('filhote');
   if (img != null) {
-    final w = 118.0, h = w * img.height / img.width;
+    final w = 270.0 * escala, h = w * img.height / img.width;
     c.save();
     c.translate(x, y);
     c.rotate(tilt);
@@ -137,13 +139,13 @@ void desenharFilhote(Canvas c, double x, double y, {double tilt = 0, double t = 
     c.restore();
     return;
   }
-  desenharBaleia(c, x, y, escala: 0.4, tilt: tilt, t: t * 1.6, opacidade: opacidade);
+  desenharBaleia(c, x, y, escala: escala, tilt: tilt, t: t * 1.6, opacidade: opacidade);
 }
 
 /// Desenha uma rede de pesca (malha) cobrindo [r].
 void desenharRede(Canvas c, Rect r, {double opacidade = 1}) {
   final p = Paint()
-    ..color = const Color(0xFFE8D9A8).withOpacity(opacidade)
+    ..color = const Color(0xFFE8D9A8).withValues(alpha: opacidade)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.4;
   const passo = 22.0;
@@ -155,7 +157,7 @@ void desenharRede(Canvas c, Rect r, {double opacidade = 1}) {
     c.drawLine(Offset(r.left, y), Offset(r.right, y + 6), p);
   }
   final borda = Paint()
-    ..color = const Color(0xFFB8893C).withOpacity(opacidade)
+    ..color = const Color(0xFFB8893C).withValues(alpha: opacidade)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 5;
   c.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(18)), borda);

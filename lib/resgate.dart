@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'baleia.dart';
 import 'dados.dart';
 import 'placar.dart';
@@ -31,6 +32,8 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
   String _msg = '';
   bool _respondida = false, _fim = false, _venceu = false;
   int _pontos = 0;
+  int _sel = 0; // opção selecionada pelo teclado
+  final _foco = FocusNode();
 
   @override
   void initState() {
@@ -42,6 +45,7 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
   @override
   void dispose() {
     _anim.dispose();
+    _foco.dispose();
     super.dispose();
   }
 
@@ -57,6 +61,7 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
     _respondida = false;
     _marcada = null;
     _msg = '';
+    _sel = 0;
     _fila = [];
     _proxima();
     _anim.value = 0;
@@ -68,6 +73,7 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
     _respondida = false;
     _marcada = null;
     _msg = '';
+    _sel = 0;
     setState(() {});
   }
 
@@ -108,8 +114,55 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
     }
   }
 
+  KeyEventResult _tecla(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    if (k == LogicalKeyboardKey.escape) {
+      Navigator.of(context).maybePop();
+      return KeyEventResult.handled;
+    }
+    final ok = k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter || k == LogicalKeyboardKey.space;
+    if (_fim) {
+      if (ok) {
+        setState(_novo);
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    final n = _q!.opcoes.length;
+    if (_respondida) {
+      if (ok) {
+        _continuar();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyW) {
+      setState(() => _sel = (_sel + n - 1) % n);
+    } else if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.keyS) {
+      setState(() => _sel = (_sel + 1) % n);
+    } else if (ok) {
+      _responde(_sel);
+    } else if (k == LogicalKeyboardKey.digit1 || k == LogicalKeyboardKey.numpad1) {
+      _responde(0);
+    } else if (k == LogicalKeyboardKey.digit2 || k == LogicalKeyboardKey.numpad2) {
+      _responde(1);
+    } else if (k == LogicalKeyboardKey.digit3 || k == LogicalKeyboardKey.numpad3) {
+      _responde(2);
+    } else if (k == LogicalKeyboardKey.digit4 || k == LogicalKeyboardKey.numpad4) {
+      _responde(3);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
   @override
   Widget build(BuildContext context) {
+    return Focus(focusNode: _foco, autofocus: true, onKeyEvent: _tecla, child: _corpo(context));
+  }
+
+  Widget _corpo(BuildContext context) {
     final q = _q!;
     return Scaffold(
       appBar: AppBar(
@@ -163,14 +216,17 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
               style: ElevatedButton.styleFrom(
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.all(16),
+                side: (!_respondida && i == _sel) ? const BorderSide(color: Color(0xFFFFB300), width: 4) : null,
                 backgroundColor: !_respondida
-                    ? const Color(0xFFE8FAFF)
+                    ? (i == _sel ? const Color(0xFFFFF3C4) : const Color(0xFFE8FAFF))
                     : (i == q.certa ? const Color(0xFFA5D6A7) : (i == _marcada ? const Color(0xFFEF9A9A) : const Color(0xFFCFD8DC))),
               ),
               onPressed: _respondida ? null : () => _responde(i),
-              child: Text(q.opcoes[i], style: const TextStyle(color: Color(0xFF06202E), fontSize: 18, fontWeight: FontWeight.w700)),
+              child: Text('${(!_respondida && i == _sel) ? '▶ ' : ''}${i + 1})  ${q.opcoes[i]}', style: const TextStyle(color: Color(0xFF06202E), fontSize: 18, fontWeight: FontWeight.w700)),
             ),
           ),
+        if (!_respondida)
+          const Text('↑ ↓ escolhem  •  Enter confirma  •  ou aperte 1 a 4  •  Esc volta', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 14)),
         if (_respondida) ...[
           Container(
             padding: const EdgeInsets.all(12),
@@ -178,7 +234,7 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
             child: Text(_msg, style: const TextStyle(color: Colors.white, fontSize: 17, height: 1.3)),
           ),
           const SizedBox(height: 12),
-          FilledButton(onPressed: _continuar, child: const Padding(padding: EdgeInsets.all(10), child: Text('Continuar', style: TextStyle(fontSize: 18)))),
+          FilledButton(onPressed: _continuar, child: const Padding(padding: EdgeInsets.all(10), child: Text('Continuar (Enter)', style: TextStyle(fontSize: 18)))),
         ],
       ]),
     );
@@ -193,9 +249,9 @@ class _ResgateTelaState extends State<ResgateTela> with SingleTickerProviderStat
         Text('$_pontos pontos  •  $_erros erros', style: const TextStyle(color: Color(0xFFFFE082), fontSize: 22, fontWeight: FontWeight.w800)),
         const SizedBox(height: 16),
         Row(mainAxisSize: MainAxisSize.min, children: [
-          FilledButton(onPressed: _novo, child: const Text('Jogar de novo')),
+          FilledButton(onPressed: () => setState(_novo), child: const Text('Jogar de novo (Enter)')),
           const SizedBox(width: 10),
-          OutlinedButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Menu', style: TextStyle(color: Colors.white))),
+          OutlinedButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Menu (Esc)', style: TextStyle(color: Colors.white))),
         ]),
       ]),
     );
