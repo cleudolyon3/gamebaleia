@@ -8,6 +8,7 @@ class Arte {
     'baleia_fechada', 'baleia_boca', 'fundo_mar', 'fundo_menu',
     'rede_cai', 'baleia_pescada', 'baleia_afunda', 'barco',
     'saco_plastico', 'krill', 'filhote', 'anzol', 'fundo_mar2', 'fundo_mar3',
+    'carga', 'explosao',
   ];
   static final Map<String, ui.Image> _m = {};
 

@@ -28,13 +28,22 @@ const int _krillMeta = 20; // krill comidos para o filhote virar baleia adulta
 const int _vidasFilhote = 2; // vidas do filhote (ganha +1 ao virar adulto)
 
 // Fases
-const List<int> _metas = [3, 3, 3]; // acertos para concluir cada fase
-const int _meta = 9; // soma das metas
+const List<double> _durFase = [60, 80, 120]; // segundos de travessia de cada fase (a final e a maior)
+const int _perguntasBonus = 3; // perguntas opcionais no fim de cada fase
+const int _pontosBonus = 100; // pontos por pergunta certa no bonus
+
+// Cargas explosivas: o navio joga, elas afundam e explodem (so na fase final)
+const List<bool> _cargasFase = [false, false, true];
+const List<double> _cargaInt = [0, 0, 1.3]; // intervalo base entre cargas (s)
+const double _cargaVel = 260; // velocidade de afundar (px/s)
+const double _cargaOffX = 70; // onde a carga sai, em relacao ao centro do navio
+const double _explRX = 135, _explRY = 100; // alcance da explosao
+const double _explDur = 1.3; // duracao da explosao (s)
 const List<String> _fNomes = ['Águas de Abrolhos', 'Mar Aberto', 'Rota dos Navios'];
 const List<String> _fDicas = [
-  'Coma krill, responda as perguntas e fuja das redes e dos sacos plásticos.',
+  'Coma krill e fuja das redes e dos sacos plásticos. No fim da fase tem perguntas bônus!',
   'O mar ficou mais fundo e as redes, mais perigosas. Já tem navio por perto!',
-  'Navios lançam anzóis e redes de arrasto! Fique abaixo da ponta do anzol e proteja o filhote.',
+  'Navios lançam anzóis, redes de arrasto e CARGAS EXPLOSIVAS! Saia da faixa marcada em vermelho.',
 ];
 const List<double> _velBase = [215, 250, 285];
 const List<double> _pObst = [0.42, 0.52, 0.58];
@@ -42,7 +51,7 @@ const List<double> _espMin = [0.95, 0.80, 0.65];
 const List<double> _espVar = [0.80, 0.65, 0.50];
 
 // troca = a mae e pescada e o filhote assume o jogo
-enum _Fase { pronto, jogando, transicao, troca, derrota, vitoria }
+enum _Fase { pronto, jogando, transicao, oferta, troca, derrota, vitoria }
 enum _Tipo { rede, saco, krill, escudo, dobro }
 
 class _Ent {
@@ -70,6 +79,16 @@ class _Arrasto {
   final int livre; // faixa (0, 1 ou 2) por onde a baleia pode passar
   double t = 0;
   _Arrasto(this.x, this.livre);
+}
+
+// carga explosiva jogada pelo navio: afunda ate a faixa e explode
+class _Carga {
+  double x, y;
+  final double alvoY;
+  final int lane;
+  bool explodiu = false, atingiu = false;
+  double t = 0; // tempo desde a explosao
+  _Carga(this.x, this.y, this.lane) : alvoY = _lanes[lane];
 }
 
 class _Bolha {
@@ -106,8 +125,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   final List<_Ent> ents = [];
   final List<_Bolha> bolhas = [];
   final List<_Texto> textos = [];
-  double proxSpawn = 1.2, sinceQ = 0;
-  int limiarP = 120;
+  double proxSpawn = 1.2;
   bool perguntaAtiva = false, respondida = false;
   int escolhida = -1, sel = 0;
   double tempoPerg = _tempoResposta, feedbackT = 0;
@@ -123,7 +141,16 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   bool fimMostrado = false, _registrado = false;
 
   // fases
-  int faseNum = 0, faseAcertos = 0;
+  int faseNum = 0;
+  double tFase = 0; // tempo de travessia da fase atual
+  bool emBonus = false; // perguntas opcionais do fim da fase
+  int bonusRestantes = 0, bonusCertas = 0, bonusPerg = 0;
+  List<int> _contas = [0, 1, 2];
+  final List<_Carga> cargas = [];
+  double proxCarga = 2;
+  int ultCargaLane = -1;
+  bool causaBomba = false;
+  bool causaGancho = false; // pescada pelo anzol: toca o video do navio antes da cena de derrota
   double faseBannerT = 0;
   int bonusFase = 0;
 
@@ -153,6 +180,11 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   int meuIdx = -1;
 
   int get mult => math.min(5, 1 + combo ~/ 3) * (dobroT > 0 ? 2 : 1);
+  // segundos do video do anzol (so quando o anzol pescou)
+  double get preDerrota =>
+      ((fase == _Fase.derrota || fase == _Fase.troca) && causaGancho && Arte.quadros('pescada') > 0) ? Arte.quadros('pescada') / 12 + 0.3 : 0.0;
+  double get tDer => tFim - preDerrota;
+  double get _prog => math.min(1.0, tFase / _durFase[faseNum]);
   int get vidasAtual => ctrlFilhote ? vidasF : vidas;
   double get _g => math.min(1.0, krillF / _krillMeta);
   // tamanho de quem o jogador controla (1 = baleia adulta)
@@ -180,6 +212,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
 
   void _novo() {
     ents.clear();
+    cargas.clear();
     textos.clear();
     vidas = 3;
     pontos = acertos = combo = 0;
@@ -198,6 +231,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     fimMostrado = false;
     _registrado = false;
     causaAnzol = false;
+    causaGancho = false;
+    causaBomba = false;
+    emBonus = false;
     bonusFase = 0;
     ctrlFilhote = false;
     filhoteVivo = true;
@@ -221,14 +257,18 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
 
   void _iniciarFase(int n) {
     faseNum = n;
-    faseAcertos = 0;
+    tFase = 0;
+    emBonus = false;
+    bonusRestantes = 0;
+    bonusCertas = 0;
+    bonusPerg = 0;
     ents.clear();
+    cargas.clear();
     navio = null;
     perguntaAtiva = false;
     perg = null;
     proxSpawn = 1.6;
-    sinceQ = 0;
-    limiarP = pontos + 120;
+    proxCarga = 1.5;
     arrasto = null;
     proxArrasto = (!redeFeita && n == arrastoFase) ? 7 + _rnd.nextDouble() * 9 : -1;
     // mais barcos: ja aparecem na fase 1 e passam com mais frequencia
@@ -273,29 +313,39 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       _jogar(dt);
     } else if (fase == _Fase.transicao) {
       ents.clear();
+      cargas.clear();
       navio = null;
       arrasto = null;
       tFim += dt;
       boca += ((tFim % 1.2 < 0.5 ? 1.0 : 0.0) - boca) * math.min(1.0, dt * 10);
       if (tFim > 3.4) _iniciarFase(faseNum + 1);
+    } else if (fase == _Fase.oferta) {
+      ents.clear();
+      cargas.clear();
+      navio = null;
+      arrasto = null;
+      boca += (0 - boca) * math.min(1.0, dt * 6);
     } else if (fase == _Fase.troca) {
       ents.clear();
+      cargas.clear();
       navio = null;
       arrasto = null;
       tFim += dt;
       boca += (0 - boca) * math.min(1.0, dt * 6);
-      final dur = Arte.quadros('derrota') > 0 ? Arte.quadros('derrota') / 12 + 0.6 : 4.2;
+      final dur = (Arte.quadros('derrota') > 0 ? Arte.quadros('derrota') / 12 + 0.6 : 4.2) + preDerrota;
       if (tFim > dur) _assumirFilhote();
     } else if (fase == _Fase.derrota) {
       ents.clear();
+      cargas.clear();
       tFim += dt;
       boca += (0 - boca) * math.min(1.0, dt * 6);
-      final dur = Arte.quadros('derrota') > 0 ? Arte.quadros('derrota') / 12 + 0.8 : 6.2;
+      final dur = (Arte.quadros('derrota') > 0 ? Arte.quadros('derrota') / 12 + 0.8 : 6.2) + preDerrota;
       if (tFim > dur && !fimMostrado) _terminar();
     } else if (fase == _Fase.vitoria) {
       tFim += dt;
       boca += ((tFim % 1.2 < 0.5 ? 1.0 : 0.0) - boca) * math.min(1.0, dt * 10);
-      if (tFim > 2.6 && !fimMostrado) _terminar();
+      final durV = Arte.quadros('chegada') > 0 ? Arte.quadros('chegada') / 12 + 0.8 : 2.6;
+      if (tFim > durV && !fimMostrado) _terminar();
     }
     _sincronizarSons();
     if (mounted) setState(() {});
@@ -342,8 +392,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       }
       return;
     }
-    final vel = _velBase[faseNum] + faseAcertos * 14 + (mult - 1) * 5;
+    final vel = _velBase[faseNum] + _prog * 40 + (mult - 1) * 5;
     scroll += vel * dt;
+    tFase += dt;
     invuln = math.max(0, invuln - dt);
     escudoT = math.max(0, escudoT - dt);
     dobroT = math.max(0, dobroT - dt);
@@ -364,15 +415,14 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       proxGolfSom = 18 + _rnd.nextDouble() * 14;
     }
 
-    sinceQ += dt;
     proxSpawn -= dt;
     if (proxSpawn <= 0) {
       _spawnComum();
       proxSpawn = _espMin[faseNum] + _rnd.nextDouble() * _espVar[faseNum];
     }
-    // a pergunta vem conforme a pontuação (ou, no máximo, a cada ~28 s)
-    if ((pontos >= limiarP && sinceQ >= 6) || sinceQ >= 28) {
-      _iniciarPergunta();
+    // fim da travessia: oferece as perguntas bonus
+    if (tFase >= _durFase[faseNum]) {
+      _fimDaTravessia();
       return;
     }
 
@@ -407,6 +457,8 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
 
     ents.removeWhere((e) => e.x < -300 || (e.morta && e.x < -50));
     _navios(dt, vel);
+    if (fase != _Fase.jogando) return;
+    _cargasTick(dt, vel);
   }
 
   // ---------------------------------------------------------------- navio e anzol
@@ -430,7 +482,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
           return;
         }
       }
-      if (sinceQ > 20) return;
+      if (_durFase[faseNum] - tFase < 9) return; // perto do fim da fase nao entra navio novo
       proxNavio -= dt;
       if (proxNavio <= 0) {
         // profundidade do anzol varia a cada barco (sempre sobra a faixa de baixo livre)
@@ -441,6 +493,14 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     }
     n.x -= vel * 0.55 * dt;
     n.t += dt;
+    // fase final: o navio joga cargas explosivas enquanto se aproxima
+    if (_cargasFase[faseNum] && n.estado < 2 && n.x + _cargaOffX > 700 && n.x < _W - 60) {
+      proxCarga -= dt;
+      if (proxCarga <= 0) {
+        _soltarCarga(n.x + _cargaOffX);
+        proxCarga = _cargaInt[faseNum] + _rnd.nextDouble() * 0.7;
+      }
+    }
     if (n.estado == 0 && n.x <= _W - 130) {
       n.estado = 1;
       textos.add(_Texto('CUIDADO: ANZOL!', _W - 200, 150, const Color(0xFFFF8A80)));
@@ -462,7 +522,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
           textos.add(_Texto('Anzol quebrado!', hx, n.tipY - 20, const Color(0xFF80DEEA)));
           Som.tocar('poder');
         } else if (_anzolMata) {
-          _pescada(hx, n.tipY);
+          _pescada(hx, n.tipY, gancho: true);
           return;
         } else if (invuln <= 0) {
           n.estado = 2;
@@ -474,6 +534,134 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       navio = null;
       proxNavio = faseNum == 0 ? 16 + _rnd.nextDouble() * 6 : (faseNum == 1 ? 7 + _rnd.nextDouble() * 3 : 5 + _rnd.nextDouble() * 3);
     }
+  }
+
+  // ---------------------------------------------------------------- cargas explosivas
+  void _soltarCarga(double x) {
+    if (cargas.length >= 3) return;
+    var l = _rnd.nextInt(3);
+    if (l == ultCargaLane) l = (l + 1 + _rnd.nextInt(2)) % 3;
+    ultCargaLane = l;
+    cargas.add(_Carga(x, _surfY + 8, l));
+    Som.tocar('anzol', vol: 0.4);
+  }
+
+  void _cargasTick(double dt, double vel) {
+    for (final g in cargas.toList()) {
+      g.x -= vel * dt;
+      if (!g.explodiu) {
+        g.y = math.min(g.alvoY, g.y + _cargaVel * dt);
+        // chegou ao fundo e esta perto da baleia: explode
+        if (g.y >= g.alvoY && g.x < _whaleX + 240) _explodir(g);
+      } else {
+        g.t += dt;
+        if (!g.atingiu && g.t < _explDur - 0.2) {
+          final k = math.min(1.0, g.t / 0.35);
+          final grow = 1 - (1 - k) * (1 - k);
+          final dx = (g.x - _whaleX) / (_explRX * grow + 1);
+          final dy = (g.y - whaleY) / (_explRY * grow + 1);
+          if (dx * dx + dy * dy < 1) {
+            if (escudoT > 0) {
+              g.atingiu = true;
+              _estourar(_whaleX, whaleY, 10);
+              textos.add(_Texto('Escudo protegeu!', _whaleX + 40, whaleY - 50, const Color(0xFF80DEEA)));
+              Som.tocar('poder');
+            } else if (invuln <= 0) {
+              g.atingiu = true;
+              _perderVida(_whaleX, whaleY, bomba: true);
+              if (fase != _Fase.jogando) return;
+            }
+          }
+        }
+      }
+    }
+    cargas.removeWhere((g) => g.x < -250 || (g.explodiu && g.t > _explDur));
+  }
+
+  void _explodir(_Carga g) {
+    g.explodiu = true;
+    g.t = 0;
+    g.y = g.alvoY;
+    tremor = math.max(tremor, 0.35);
+    _estourar(g.x, g.y, 16);
+    Som.tocar('batida', vol: 0.6);
+  }
+
+  // ---------------------------------------------------------------- perguntas bonus (fim da fase)
+  void _fimDaTravessia() {
+    ents.clear();
+    cargas.clear();
+    navio = null;
+    arrasto = null;
+    perguntaAtiva = false;
+    tFim = 0;
+    Som.tocar('fase');
+    fase = _Fase.oferta;
+  }
+
+  void _aceitarBonus() {
+    if (fase != _Fase.oferta) return;
+    fase = _Fase.jogando;
+    emBonus = true;
+    bonusRestantes = _perguntasBonus;
+    bonusPerg = _perguntasBonus;
+    bonusCertas = 0;
+    _contas = [0, 1, 2]..shuffle(_rnd);
+    _proximaBonus();
+  }
+
+  void _pularBonus() {
+    if (fase != _Fase.oferta) return;
+    bonusPerg = 0;
+    bonusCertas = 0;
+    _aposBonus();
+  }
+
+  void _aposBonus() {
+    emBonus = false;
+    if (faseNum >= 2) {
+      _vitoria();
+    } else {
+      _concluirFase();
+    }
+  }
+
+  // 1a pergunta: conhecimento. As outras: contas (soma, multiplicacao, divisao) com os pontos do jogo
+  void _proximaBonus() {
+    final idx = _perguntasBonus - bonusRestantes;
+    _iniciarPergunta(idx == 0 ? null : _gerarConta(_contas[(idx - 1) % 3]));
+  }
+
+  Pergunta _gerarConta(int tipo) {
+    final base = math.max(10, (pontos ~/ 10) * 10);
+    String enun, expl;
+    int r;
+    if (tipo == 0) {
+      final b = 50 * (1 + _rnd.nextInt(6));
+      r = base + b;
+      enun = 'Você tem $base pontos e ganhou mais $b pontos. Quantos pontos você tem agora?';
+      expl = '$base + $b = $r. Na adição, juntamos as quantidades.';
+    } else if (tipo == 1) {
+      final m = 2 + _rnd.nextInt(4);
+      final n = 3 + _rnd.nextInt(5);
+      r = n * 10 * m;
+      enun = 'Cada krill vale 10 pontos. Com o combo x$m, cada krill vale ${10 * m} pontos. Quanto valem $n krills?';
+      expl = '$n × ${10 * m} = $r. Multiplicar é somar a mesma quantidade várias vezes.';
+    } else {
+      final d = [2, 4, 5][_rnd.nextInt(3)];
+      final q = math.max(20, (base ~/ d ~/ 10) * 10);
+      final total = q * d;
+      r = q;
+      enun = 'Você tem $total pontos e vai dividir igualmente entre $d amigos. Quantos pontos cada um recebe?';
+      expl = '$total ÷ $d = $q. Dividir é repartir em partes iguais.';
+    }
+    final ops = <int>{r};
+    final cand = <int>[r + 10, r - 10, r + 20, r - 20, r + 50, r - 50, r + 100, r + 30, r - 30]..shuffle(_rnd);
+    for (final v in cand) {
+      if (v > 0 && ops.length < 4) ops.add(v);
+    }
+    final lista = ops.toList()..shuffle(_rnd);
+    return Pergunta('Matemática', enun, [for (final v in lista) '$v pontos'], lista.indexOf(r), expl);
   }
 
   // rede de arrasto: cobre 2 faixas e so deixa 1 livre
@@ -505,8 +693,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   }
 
   // o anzol pegou quem o jogador controla
-  void _pescada(double x, double y) {
+  void _pescada(double x, double y, {bool gancho = false}) {
     causaAnzol = true;
+    causaGancho = gancho;
     if (ctrlFilhote) {
       vidasF = 0;
     } else {
@@ -526,6 +715,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     respondida = false;
     navio = null;
     arrasto = null;
+    cargas.clear();
     Som.tocar('pescada');
     tFim = 0;
     if (!ctrlFilhote && filhoteVivo) {
@@ -539,12 +729,13 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   void _assumirFilhote() {
     ctrlFilhote = true;
     causaAnzol = false;
+    causaGancho = false;
     invuln = 2.5;
     combo = 0;
     ents.clear();
+    cargas.clear();
     navio = null;
-    sinceQ = 0;
-    limiarP = pontos + 120;
+    causaBomba = false;
     proxSpawn = 1.2;
     veu = 1;
     aviso = 'Agora você é o filhote! Coma krill para crescer e virar uma baleia.';
@@ -600,9 +791,14 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     ents.add(_Ent(_rnd.nextBool() ? _Tipo.rede : _Tipo.saco, _W + 80, l2));
   }
 
-  void _iniciarPergunta() {
-    if (_fila.isEmpty) _fila = List.of(perguntasCorrida)..shuffle(_rnd);
-    final p = _fila.removeLast();
+  void _iniciarPergunta([Pergunta? forca]) {
+    final Pergunta p;
+    if (forca != null) {
+      p = forca;
+    } else {
+      if (_fila.isEmpty) _fila = List.of(perguntasCorrida)..shuffle(_rnd);
+      p = _fila.removeLast();
+    }
     perg = p;
     final erradas = <int>[for (var i = 0; i < p.opcoes.length; i++) if (i != p.certa) i]..shuffle(_rnd);
     final escolhidas = [p.certa, erradas[0], erradas[1]]..shuffle(_rnd);
@@ -616,6 +812,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     ents.clear(); // limpa a tela: ao voltar não há obstáculo em cima da baleia
     navio = null; // o navio sai de cena: ao voltar não há anzol em cima da baleia
     arrasto = null;
+    cargas.clear();
     perguntaAtiva = true;
     boca = 0;
     _foco.requestFocus();
@@ -629,22 +826,13 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     feedbackT = 7;
     if (i == certaIdx) {
       acertos++;
-      faseAcertos++;
-      combo += 2;
-      final g = 100 * mult;
-      pontos += g;
-      textos.add(_Texto('+$g', _whaleX + 60, whaleY - 60, const Color(0xFFA5D6A7)));
+      bonusCertas++;
+      pontos += _pontosBonus;
+      textos.add(_Texto('+$_pontosBonus', _whaleX + 60, whaleY - 60, const Color(0xFFA5D6A7)));
       _estourar(_whaleX + 100, whaleY, 14);
       Som.tocar('acerto');
     } else {
-      if (ctrlFilhote) {
-        vidasF--;
-      } else {
-        vidas--;
-      }
-      combo = 0;
-      tremor = 1;
-      flash = 1;
+      // pergunta bonus: errar nao tira vida
       Som.tocar('erro');
     }
     _foco.requestFocus();
@@ -655,19 +843,12 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
     perguntaAtiva = false;
     respondida = false;
     ents.clear();
-    invuln = 2.0;
-    sinceQ = 0;
-    limiarP = pontos + 120;
-    proxSpawn = 1.0;
+    bonusRestantes--;
     _foco.requestFocus();
-    if (vidasAtual <= 0) {
-      _perdeuPersonagem();
-    } else if (faseAcertos >= _metas[faseNum]) {
-      if (faseNum >= 2) {
-        _vitoria();
-      } else {
-        _concluirFase();
-      }
+    if (bonusRestantes > 0) {
+      _proximaBonus();
+    } else {
+      _aposBonus();
     }
   }
 
@@ -729,7 +910,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
   }
 
   // batida em rede ou saco: tira 1 vida de quem o jogador controla
-  void _perderVida(double x, double y) {
+  void _perderVida(double x, double y, {bool bomba = false}) {
+    causaBomba = bomba;
+    causaGancho = false;
     Som.tocar('batida');
     if (ctrlFilhote) {
       vidasF--;
@@ -773,6 +956,11 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       }
       return KeyEventResult.ignored;
     }
+    if (fase == _Fase.oferta) {
+      if (ok) _aceitarBonus();
+      if (k == LogicalKeyboardKey.keyN) _pularBonus();
+      return KeyEventResult.handled;
+    }
     if (fase != _Fase.jogando) return KeyEventResult.ignored;
     if (perguntaAtiva) {
       if (!respondida) {
@@ -812,9 +1000,10 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
                 onPointerMove: (e) => _ponteiro(e.localPosition.dy / sc),
                 child: Stack(children: [
                   Positioned.fill(child: CustomPaint(painter: _CorridaPainter(this))),
-                  if (fase == _Fase.jogando || fase == _Fase.vitoria || fase == _Fase.transicao) _hud(sc),
+                  if (fase == _Fase.jogando || fase == _Fase.oferta || fase == _Fase.transicao || (fase == _Fase.vitoria && Arte.quadros('chegada') == 0)) _hud(sc),
                   if (fase == _Fase.jogando && faseBannerT > 0 && !perguntaAtiva) _banner(sc),
                   if (fase == _Fase.transicao) _cartaoTransicao(sc),
+                  if (fase == _Fase.oferta) _cartaoOferta(sc),
                   if (fase == _Fase.troca) _bannerTroca(sc),
                   if (fase == _Fase.jogando && perguntaAtiva && perg != null) _painelPergunta(sc),
                   if (fase == _Fase.pronto) _cartaoInicio(sc),
@@ -861,7 +1050,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
                   _pill('⭐ $pontos', sc),
                   _pill('Combo x$mult', sc, cor: mult > 1 ? const Color(0xFFFF8F00) : null),
                   _pill('Fase ${faseNum + 1}/3', sc, cor: const Color(0xFF5E35B1)),
-                  _pill('🐋 $faseAcertos/${_metas[faseNum]}', sc),
+                  _pill('🏁 ${(_prog * 100).floor()}%', sc),
                   if (ctrlFilhote) _pill('Você é o filhote', sc, cor: const Color(0xFFC2185B)),
                   if (filhoteVivo)
                     _pill(filhoteAdulto ? '🐋 Filhote adulto' : '🐳 $krillF/$_krillMeta', sc, cor: const Color(0xFF2E7D32)),
@@ -910,7 +1099,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
             ),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                Text('Pergunta $numPergunta  •  ${p.tema}',
+                Text('Bônus ${_perguntasBonus - bonusRestantes + 1}/$_perguntasBonus  •  ${p.tema}',
                     style: TextStyle(color: const Color(0xFF8ED8D3), fontSize: 15 * sc, fontWeight: FontWeight.w900)),
                 const Spacer(),
                 if (!respondida)
@@ -960,7 +1149,7 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
                     borderRadius: BorderRadius.circular(12 * sc),
                   ),
                   child: Text(
-                    '${escolhida == certaIdx ? '✅ Acertou! +pontos. ' : (escolhida < 0 ? '⏱ Tempo esgotado! Você perdeu uma vida. ' : '❌ Errou! Você perdeu uma vida. ')}${p.explicacao}',
+                    '${escolhida == certaIdx ? '✅ Acertou! +$_pontosBonus pontos. ' : (escolhida < 0 ? '⏱ Tempo esgotado! Sem problema, é só bônus. ' : '❌ Errou, mas não perdeu vida. ')}${p.explicacao}',
                     style: TextStyle(color: Colors.white, fontSize: 16 * sc, fontWeight: FontWeight.w700, height: 1.3),
                   ),
                 ),
@@ -1053,6 +1242,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
           SizedBox(height: 6 * sc),
           Text('Bônus: +$bonusFase',
               style: TextStyle(color: const Color(0xFFFFE082), fontSize: 22 * sc, fontWeight: FontWeight.w800)),
+          if (bonusPerg > 0)
+            Text('Perguntas bônus: $bonusCertas/$bonusPerg certas (+${bonusCertas * _pontosBonus})',
+                style: TextStyle(color: const Color(0xFFA5D6A7), fontSize: 16 * sc, fontWeight: FontWeight.w800)),
           Text(filhoteVivo ? 'O filhote está com você! 🐳' : 'O filhote se perdeu pelo caminho.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70, fontSize: 15 * sc)),
@@ -1064,6 +1256,26 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       ),
     );
   }
+
+  Widget _cartaoOferta(double sc) => _cartao(sc, [
+        Text('🏁 Fase ${faseNum + 1} concluída!',
+            style: TextStyle(color: Colors.white, fontSize: 30 * sc, fontWeight: FontWeight.w900)),
+        SizedBox(height: 10 * sc),
+        Text(
+          'Quer responder $_perguntasBonus perguntas e contas para ganhar bônus?\n'
+          'Cada acerto vale +$_pontosBonus pontos. Errar não tira vida!',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white70, fontSize: 18 * sc, height: 1.4),
+        ),
+        SizedBox(height: 18 * sc),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          FilledButton(onPressed: _aceitarBonus, child: Padding(padding: EdgeInsets.all(8 * sc), child: Text('Responder (Enter)', style: TextStyle(fontSize: 20 * sc)))),
+          SizedBox(width: 14 * sc),
+          OutlinedButton(
+              onPressed: _pularBonus,
+              child: Padding(padding: EdgeInsets.all(8 * sc), child: Text('Pular (N)', style: TextStyle(fontSize: 20 * sc, color: Colors.white)))),
+        ]),
+      ]);
 
   Widget _cartao(double sc, List<Widget> filhos) => Center(
         child: Container(
@@ -1086,8 +1298,9 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
           'Nade pelas 3 faixas com as setas ↑ ↓ (ou W/S, ou o mouse).\n'
           'Coma krill: ele faz o filhote crescer. Fuja de redes, sacos e anzóis!\n'
           'Se a mãe for pescada, o filhote assume. Se o filhote se perder, o jogo acaba.\n'
-          'Quando vier a pergunta, o jogo para: ↑ ↓ escolhem e Enter confirma (ou 1, 2, 3).\n'
-          'Acerte $_meta perguntas, em 3 fases, para chegar a Abrolhos.',
+          'Na última fase os navios jogam cargas explosivas: saia da faixa marcada em vermelho!\n'
+          'No fim de cada fase você pode responder perguntas e contas para ganhar bônus.\n'
+          'Sobreviva às 3 fases para chegar a Abrolhos.',
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.white70, fontSize: 17 * sc, height: 1.4),
         ),
@@ -1114,12 +1327,14 @@ class _CorridaTelaState extends State<CorridaTela> with SingleTickerProviderStat
       titulo = '🎣 O filhote foi pescado…';
       msg = causaAnzol
           ? 'Anzóis e redes de pesca ferem os animais marinhos. Preservar o mar é papel de todos!'
-          : 'Redes e plástico ferem os animais marinhos. Preservar o mar e a biodiversidade é papel de todos!';
+          : (causaBomba
+              ? 'Explosões debaixo d\'água machucam e afastam os animais marinhos. Preservar o mar é papel de todos!'
+              : 'Redes e plástico ferem os animais marinhos. Preservar o mar e a biodiversidade é papel de todos!');
     }
     return _cartao(sc, [
       Text(titulo, textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 28 * sc, fontWeight: FontWeight.w900)),
       SizedBox(height: 8 * sc),
-      Text('Pontos: $pontos   •   Acertos: $acertos/$_meta   •   Fase ${faseNum + 1}/3',
+      Text('Pontos: $pontos   •   Perguntas certas: $acertos   •   Fase ${faseNum + 1}/3',
           style: TextStyle(color: const Color(0xFFFFE082), fontSize: 19 * sc, fontWeight: FontWeight.w800)),
       SizedBox(height: 8 * sc),
       Text(msg, textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 16 * sc, height: 1.3)),
@@ -1170,6 +1385,22 @@ class _CorridaPainter extends CustomPainter {
       c.restore();
       return;
     }
+    if (s.fase == _Fase.vitoria && Arte.quadros('chegada') > 0) {
+      Arte.quadro(c, 'chegada', (s.tFim * 12).floor(), const Rect.fromLTWH(0, 0, _W, _H));
+      _confete(c);
+      c.restore();
+      return;
+    }
+    if ((s.fase == _Fase.derrota || s.fase == _Fase.troca) && s.tFim < s.preDerrota) {
+      // video do navio baixando o anzol ate a baleia
+      Arte.quadro(c, 'pescada', (s.tFim * 12).floor(), const Rect.fromLTWH(0, 0, _W, _H));
+      final fim = Arte.quadros('pescada') / 12;
+      if (s.tFim > fim) {
+        c.drawRect(const Rect.fromLTWH(0, 0, _W, _H), Paint()..color = Color.fromRGBO(0, 8, 20, _ease((s.tFim - fim) / 0.3)));
+      }
+      c.restore();
+      return;
+    }
     _fundo(c);
     _peixes(c);
     _riscos(c);
@@ -1179,6 +1410,7 @@ class _CorridaPainter extends CustomPainter {
     }
     _navio(c);
     _arrastoDesenho(c);
+    _cargasDesenho(c);
     for (final e in s.ents) {
       if (e.morta) continue;
       _ent(c, e);
@@ -1203,7 +1435,7 @@ class _CorridaPainter extends CustomPainter {
 
   void _fundo(Canvas c) {
     const r = Rect.fromLTWH(0, 0, _W, _H);
-    final profundo = s.fase == _Fase.derrota ? _ease((s.tFim - 3.6) / 2.4) : 0.0;
+    final profundo = s.fase == _Fase.derrota ? _ease((s.tDer - 3.6) / 2.4) : 0.0;
     const nomes = ['fundo_mar', 'fundo_mar2', 'fundo_mar3'];
     final okImg = Arte.cobrir(c, nomes[s.faseNum], r) || (s.faseNum > 0 && Arte.cobrir(c, 'fundo_mar', r));
     if (!okImg) {
@@ -1353,6 +1585,62 @@ class _CorridaPainter extends CustomPainter {
         ..lineTo(_whaleX + 150, yl + 16)
         ..close();
       c.drawPath(path, tp);
+    }
+  }
+
+  // cargas explosivas: faixa de perigo, carga piscando e explosao
+  void _cargasDesenho(Canvas c) {
+    for (final g in s.cargas) {
+      if (g.explodiu) {
+        _explosao(c, g);
+        continue;
+      }
+      final pulso = 0.5 + 0.5 * math.sin(s.t * 8);
+      final xDir = math.min(g.x + 40, _W);
+      if (xDir > _whaleX - 150) {
+        c.drawRect(Rect.fromLTRB(_whaleX - 150, g.alvoY - 52, xDir, g.alvoY + 52),
+            Paint()..color = Color.fromRGBO(255, 23, 68, 0.07 + 0.10 * pulso));
+      }
+      final dist = ((g.x - _whaleX) / 700).clamp(0.0, 1.0).toDouble();
+      final blink = (s.t * (4 + 10 * (1 - dist))).floor() % 2 == 0;
+      final cx = g.x, cy = g.y;
+      if (!Arte.desenhar(c, 'carga', Rect.fromCenter(center: Offset(cx, cy), width: 84, height: 84))) {
+        final corpo = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(cx, cy), width: 40, height: 56), const Radius.circular(9));
+        c.drawRRect(corpo, Paint()..color = const Color(0xFF546E7A));
+        c.drawRect(Rect.fromCenter(center: Offset(cx, cy - 14), width: 40, height: 6), Paint()..color = const Color(0xFF263238));
+        c.drawRect(Rect.fromCenter(center: Offset(cx, cy + 14), width: 40, height: 6), Paint()..color = const Color(0xFF263238));
+        c.drawRect(Rect.fromCenter(center: Offset(cx, cy), width: 40, height: 8), Paint()..color = const Color(0xFFFFCA28));
+        c.drawLine(Offset(cx, cy - 28), Offset(cx, cy - 34), Paint()..color = const Color(0xFF263238)..strokeWidth = 3);
+        c.drawCircle(Offset(cx, cy - 36), 5, Paint()..color = blink ? const Color(0xFFFF1744) : const Color(0xFF7F0000));
+      }
+      if (blink) c.drawCircle(Offset(cx, cy - 34), 12, Paint()..color = const Color(0x55FF1744));
+    }
+  }
+
+  void _explosao(Canvas c, _Carga g) {
+    final k = (g.t / _explDur).clamp(0.0, 1.0).toDouble();
+    final grow = _ease(math.min(1.0, g.t / 0.35));
+    final alfa = 1 - k * k;
+    final centro = Offset(g.x, g.y);
+    final lado = 2 * _explRX * (0.45 + 0.65 * grow);
+    if (Arte.desenhar(c, 'explosao', Rect.fromCenter(center: centro, width: lado, height: lado), opacity: alfa)) return;
+    final r = _explRX * (0.25 + 0.85 * grow);
+    c.drawCircle(
+        centro,
+        r,
+        Paint()
+          ..shader = ui.Gradient.radial(centro, r, [
+            Color.fromRGBO(255, 245, 157, alfa),
+            Color.fromRGBO(255, 143, 0, 0.9 * alfa),
+            const Color.fromRGBO(213, 0, 0, 0.0),
+          ], const [0.0, 0.5, 1.0]));
+    c.drawOval(Rect.fromCenter(center: centro, width: 2 * _explRX * grow, height: 2 * _explRY * grow),
+        Paint()..color = Color.fromRGBO(255, 255, 255, 0.8 * alfa)..style = PaintingStyle.stroke..strokeWidth = 4);
+    for (var i = 0; i < 10; i++) {
+      final ang = i * 0.628 + g.alvoY * 0.01;
+      final d = r * (0.5 + 0.6 * grow);
+      c.drawCircle(Offset(g.x + math.cos(ang) * d, g.y + math.sin(ang) * d * 0.8), 5 * (1 - k) + 1,
+          Paint()..color = Color.fromRGBO(255, 202, 40, alfa));
     }
   }
 
@@ -1522,7 +1810,7 @@ class _CorridaPainter extends CustomPainter {
   // -------- sequência de derrota: rede cai, baleia é içada, rede solta, afunda
   // (a mesma cena serve quando a mae e pescada e o filhote assume)
   void _baleiaDerrota(Canvas c) {
-    final td = s.tFim;
+    final td = s.tDer;
     if (Arte.quadros('derrota') > 0) {
       Arte.quadro(c, 'derrota', (td * 12).floor(), const Rect.fromLTWH(0, 0, _W, _H));
       final fim = Arte.quadros('derrota') / 12;

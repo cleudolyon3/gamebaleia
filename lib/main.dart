@@ -14,6 +14,8 @@ Future<void> main() async {
   await Arte.carregar();
   Arte.carregarSeq('derrota');
   Arte.carregarSeq('intro');
+  Arte.carregarSeq('chegada');
+  Arte.carregarSeq('pescada');
   runApp(const MostraApp());
 }
 

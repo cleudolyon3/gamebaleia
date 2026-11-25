@@ -94,3 +94,11 @@ O Flutter gera uma pasta. Para virar **um instalador/arquivo único** use o Inno
 - **Mais barcos**: aparecem já na fase 1 e passam bem mais vezes nas fases 2 e 3; o anzol desce mais rápido a cada fase.
 - **Profundidade do anzol varia** a cada barco (às vezes só a faixa de cima é atingida, às vezes as duas de cima). A faixa de baixo sempre fica livre.
 - **Rede de arrasto**: rara, **uma única vez por partida** (fase 2 ou 3, sorteada). Um barco puxa uma rede que cobre 2 faixas e **deixa só 1 faixa livre** (sorteada), marcada em verde e com uma seta. Se a baleia estiver numa faixa coberta quando a rede passar, é pescada (o escudo rasga a rede).
+
+## Versão 1.8
+
+- **Perguntas no fim da fase**: a fase agora é uma travessia (60 s, 80 s e 120 s, ajuste `_durFase`). No fim aparece "Responder (Enter) / Pular (N)". São 3 perguntas bônus (1 de conhecimento e 2 contas de adição, multiplicação ou divisão com os pontos do jogo), +100 por acerto, errar não tira vida.
+- **Fase final com cargas explosivas**: o navio joga cargas que afundam numa faixa marcada em vermelho e explodem perto da baleia. Explosão tira 1 vida; o escudo protege. Ajustes: `_cargasFase`, `_cargaInt`, `_explRX`, `_explRY`.
+- **Cena de chegada**: o vídeo da mãe e do filhote ao pôr do sol (`assets/img/chegada/`) toca na vitória.
+- Imagens `carga.png` e `explosao.png` já incluídas (prompts em `PROMPTS_CARGA_EXPLOSAO.md`). Sem elas o jogo desenha em código.
+- **Cena do anzol**: quando o anzol pesca a baleia, toca o vídeo do navio baixando o anzol (`assets/img/pescada/`) e depois a cena de derrota.
